@@ -1,0 +1,21 @@
+## Interface: 30300
+## Title: WisdomKeeper
+## Notes: This addon will try to show all currently available quests
+## Author: texhnolyzze
+## SavedVariablesPerCharacter: WisdomKeeperDBPC
+## X-Category: Quest
+## Version: 1.0
+## RequiredDeps: HandyNotes
+
+libs\LibStub\LibStub.lua
+libs\AceAddon-3.0\AceAddon-3.0.lua
+libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+libs\AceEvent-3.0\AceEvent-3.0.lua
+libs\AceDB-3.0\AceDB-3.0.lua
+
+db\ExclusiveGroups.lua
+db\MapFileToZoneIndex.lua
+db\Quests.lua
+db\QuestStarters.lua
+
+WisdomKeeper.lua

@@ -186,6 +186,19 @@ end
 function WisdomKeeper:PLAYER_LEVEL_UP(EventName, ...)
 	local Args = {...}
 	DB.Level = tonumber(Args[1])
+	HandyNotes:UpdateMinimapPlugin("WisdomKeeper")
+end
+
+--we need this function, since if we simply zero out the value by the key - not the fact 
+--that the garbage collector will collect it before the player turns off the game
+local function RemoveKey(Table, Key) 
+	local Temp = {}
+	for key, value in pairs(Table) do
+		if (key ~= Key) then 
+			Temp[key] = value
+		end
+	end
+	return Temp
 end
 
 function WisdomKeeper:QUEST_TURNED_IN(EventName, ...) 
@@ -194,17 +207,17 @@ function WisdomKeeper:QUEST_TURNED_IN(EventName, ...)
 	local Quest = Quests[QuestID]
 	if (Quest ~= nil) then 
 	
-		DB.ActiveQuests[QuestID] = nil
+		DB.ActiveQuests = RemoveKey(DB.ActiveQuests, QuestID)
 		
-		local QuestName = nil
+		local Temp = {}
+		
 		for QName, QID in pairs(DB.QuestNameToQuestID) do
-			if (QID == QuestID) then 
-				QuestName = QName
-				break
+			if (QID ~= QuestID) then
+				Temp[QName] = QID
 			end
 		end
 		
-		DB.QuestNameToQuestID[QuestName] = nil
+		DB.QuestNameToQuestID = Temp
 		if (CanIncreaseRewardedQuestCounters(Quest)) then
 			DB.RewardedQuests[QuestID] = true
 		end
@@ -235,8 +248,8 @@ function WisdomKeeper:QUEST_ABANDONED()
 	local QuestName = GetAbandonQuestName()
 	local QuestID = DB.QuestNameToQuestID[QuestName]
 	if (QuestID ~= nil) then
-		DB.ActiveQuests[QuestID] = nil
-		DB.QuestNameToQuestID[QuestName] = nil
+		DB.ActiveQuests = RemoveKey(DB.ActiveQuests, QuestID)
+		DB.QuestNameToQuestID = RemoveKey(DB.QuestNameToQuestID, QuestName)
 		HandyNotes:UpdateMinimapPlugin("WisdomKeeper")
 	end
 end

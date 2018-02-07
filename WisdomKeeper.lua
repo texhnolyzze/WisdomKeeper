@@ -1,4 +1,4 @@
-﻿WisdomKeeper = LibStub("AceAddon-3.0"):NewAddon("WisdomKeeper", "AceEvent-3.0")
+﻿local WisdomKeeper = LibStub("AceAddon-3.0"):NewAddon("WisdomKeeper", "AceEvent-3.0", "AceHook-3.0")
 
 local ClassMask = {
 	["WARRIOR"] 	= 1,
@@ -62,6 +62,7 @@ end
 ---------------------------------------------------
 
 local DB = nil
+local DebugMode = true
 
 function WisdomKeeper:OnInitialize()
 
@@ -103,6 +104,7 @@ function WisdomKeeper:PLAYER_ENTERING_WORLD()
 end
 
 function WisdomKeeper:InitialiazeCharacterDB()
+
 	DB.ActiveQuests = {}
 	DB.RewardedQuests = {}
 	
@@ -129,6 +131,7 @@ function WisdomKeeper:InitialiazeCharacterDB()
 end
 
 function WisdomKeeper:QUEST_QUERY_COMPLETE()
+
 	local CompletedQuests = GetQuestsCompleted({})
 	for QuestID, _ in pairs(CompletedQuests) do
 		local Quest = Quests[QuestID]
@@ -139,12 +142,13 @@ function WisdomKeeper:QUEST_QUERY_COMPLETE()
 			self:UpdateTimeRewarded(Quest, QuestID)
 		end
 	end
+	
 	self:StoreActiveQuests()
 	DB.WasInitialized = true
 	
 	self:UnregisterEvent("QUEST_QUERY_COMPLETE")
 	self:RegisterAllEvents()
-	
+
 end
 
 function WisdomKeeper:StoreActiveQuests()
@@ -162,22 +166,24 @@ end
 ---------------------------------------------------------------
 
 function WisdomKeeper:RegisterAllEvents()
+
 	self:RegisterEvent("PLAYER_LEVEL_UP")
-	
-	self:RegisterEvent("QUEST_TURNED_IN")
 	self:RegisterEvent("QUEST_ACCEPTED")
+	self:RegisterEvent("QUEST_COMPLETE")
 	
-	local AbandonQuestSourceFunc = StaticPopupDialogs["ABANDON_QUEST"].OnAccept
-	StaticPopupDialogs["ABANDON_QUEST"].OnAccept = function() 
+	AbandonQuestSourceFunc = StaticPopupDialogs["ABANDON_QUEST"].OnAccept
+	StaticPopupDialogs["ABANDON_QUEST"].OnAccept = function()
 		self:QUEST_ABANDONED()
 		AbandonQuestSourceFunc()
 	end
 	
-	local AbandonQuestWithItemsSourceFunc = StaticPopupDialogs["ABANDON_QUEST_WITH_ITEMS"].OnAccept
+	AbandonQuestWithItemsSourceFunc = StaticPopupDialogs["ABANDON_QUEST_WITH_ITEMS"].OnAccept
 	StaticPopupDialogs["ABANDON_QUEST_WITH_ITEMS"].OnAccept = function()
 		self:QUEST_ABANDONED()
 		AbandonQuestWithItemsSourceFunc()
 	end
+	
+	self:SecureHook("GetQuestReward", self.QUEST_TURNED_IN)
 	
 	HandyNotes:RegisterPluginDB("WisdomKeeper", self, nil)
 	
@@ -189,35 +195,37 @@ function WisdomKeeper:PLAYER_LEVEL_UP(EventName, ...)
 	HandyNotes:UpdateMinimapPlugin("WisdomKeeper")
 end
 
---we need this function, since if we simply zero out the value by the key - not the fact 
---that the garbage collector will collect it before the player turns off the game
-local function RemoveKey(Table, Key) 
-	local Temp = {}
-	for key, value in pairs(Table) do
-		if (key ~= Key) then 
-			Temp[key] = value
-		end
+function WisdomKeeper:QUEST_ABANDONED() 
+	local QuestName = GetAbandonQuestName()
+	local QuestID = DB.QuestNameToQuestID[QuestName]
+	if (QuestID ~= nil) then
+		DB.ActiveQuests[QuestID] = nil
+		DB.QuestNameToQuestID[QuestName] = nil
+		HandyNotes:UpdateMinimapPlugin("WisdomKeeper")
 	end
-	return Temp
 end
 
-function WisdomKeeper:QUEST_TURNED_IN(EventName, ...) 
-	local Args = {...}
-	local QuestID = Args[1]
+local QuestTitleTemp = ""
+
+function WisdomKeeper:QUEST_COMPLETE() 
+	QuestTitleTemp = GetTitleText()
+end
+
+function WisdomKeeper:QUEST_TURNED_IN(...)
+	QuestID = DB.QuestNameToQuestID[QuestTitleTemp]
 	local Quest = Quests[QuestID]
 	if (Quest ~= nil) then 
 	
-		DB.ActiveQuests = RemoveKey(DB.ActiveQuests, QuestID)
+		DB.ActiveQuests[QuestID] = nil
 		
-		local Temp = {}
-		
+		local QuestName
 		for QName, QID in pairs(DB.QuestNameToQuestID) do
-			if (QID ~= QuestID) then
-				Temp[QName] = QID
+			if (QID == QuestID) then
+				QuestName = QName
 			end
 		end
+		DB.QuestNameToQuestID[QuestName] = nil
 		
-		DB.QuestNameToQuestID = Temp
 		if (CanIncreaseRewardedQuestCounters(Quest)) then
 			DB.RewardedQuests[QuestID] = true
 		end
@@ -240,16 +248,6 @@ function WisdomKeeper:QUEST_ACCEPTED(EventName, QuestLogIndex)
 			DB.ActiveQuests[QuestID] = true
 			DB.QuestNameToQuestID[QuestName] = QuestID
 		end
-		HandyNotes:UpdateMinimapPlugin("WisdomKeeper")
-	end
-end
-
-function WisdomKeeper:QUEST_ABANDONED()
-	local QuestName = GetAbandonQuestName()
-	local QuestID = DB.QuestNameToQuestID[QuestName]
-	if (QuestID ~= nil) then
-		DB.ActiveQuests = RemoveKey(DB.ActiveQuests, QuestID)
-		DB.QuestNameToQuestID = RemoveKey(DB.QuestNameToQuestID, QuestName)
 		HandyNotes:UpdateMinimapPlugin("WisdomKeeper")
 	end
 end

@@ -1,4 +1,5 @@
 ﻿local WisdomKeeper = LibStub("AceAddon-3.0"):NewAddon("WisdomKeeper", "AceEvent-3.0", "AceHook-3.0")
+local DB = nil
 
 local ClassMask = {
 	["WARRIOR"] 	= 1,
@@ -70,8 +71,6 @@ local function UpdateTimeRewarded(Quest, QuestID)
 end
 
 ---------------------------------------------------
-
-local DB = nil
 
 function WisdomKeeper:OnInitialize()
 

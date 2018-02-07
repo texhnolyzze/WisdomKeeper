@@ -59,16 +59,31 @@ local function CanIncreaseRewardedQuestCounters(Quest)
 	return (not IsDaily(Quest) and (not IsRepeatable(Quest) or IsWeekly(Quest) or IsMonthly(Quest)))
 end
 
+local function UpdateTimeRewarded(Quest, QuestID)
+	if (IsDaily(Quest)) then 
+		DB.DailyQuests[QuestID] = time()
+	elseif (IsWeekly(Quest)) then
+		DB.WeeklyQuests[QuestID] = time()
+	elseif (IsMonthly(Quest)) then
+		DB.MonthlyQuests[QuestID] = time()
+	end
+end
+
 ---------------------------------------------------
 
 local DB = nil
-local DebugMode = true
 
 function WisdomKeeper:OnInitialize()
 
 	local defaults = {
 		["char"] = {
-			["WasInitialized"] = false
+			["WasInitialized"] = false,
+			["ActiveQuests"] = {},
+			["RewardedQuests"] = {},
+			["DailyQuests"] = {},
+			["WeeklyQuests"] = {},
+			["MonthlyQuests"] = {},
+			["QuestNameToQuestID"] = {}
 		}
 	}
 	
@@ -82,18 +97,6 @@ end
 function WisdomKeeper:OnEnable() end
 function WisdomKeeper:OnDisable() end
 
-function WisdomKeeper:UpdateTimeRewarded(Quest, QuestID)
-	if (IsDaily(Quest)) then 
-		DB.DailyQuests[QuestID] = time()
-	elseif (IsWeekly(Quest)) then
-		DB.WeeklyQuests[QuestID] = time()
-	elseif (IsMonthly(Quest)) then
-		DB.MonthlyQuests[QuestID] = time()
-	end
-end
-
---------------The first launch of the addon. No character data yet.------------------
-
 function WisdomKeeper:PLAYER_ENTERING_WORLD()
 	self:UnregisterEvent("PLAYER_ENTERING_WORLD")
 	if (not DB.WasInitialized) then 
@@ -103,16 +106,9 @@ function WisdomKeeper:PLAYER_ENTERING_WORLD()
 	end
 end
 
+--------------The first launch of the addon. No character data yet.------------------
+
 function WisdomKeeper:InitialiazeCharacterDB()
-
-	DB.ActiveQuests = {}
-	DB.RewardedQuests = {}
-	
-	DB.DailyQuests = {}
-	DB.WeeklyQuests = {}
-	DB.MonthlyQuests = {}
-
-	DB.QuestNameToQuestID = {}
 
 	local _, RaceName = UnitRace("player")
 	local RaceMask = RaceMask[RaceName] 
@@ -132,6 +128,8 @@ end
 
 function WisdomKeeper:QUEST_QUERY_COMPLETE()
 
+	self:UnregisterEvent("QUEST_QUERY_COMPLETE")
+
 	local CompletedQuests = GetQuestsCompleted({})
 	for QuestID, _ in pairs(CompletedQuests) do
 		local Quest = Quests[QuestID]
@@ -139,14 +137,13 @@ function WisdomKeeper:QUEST_QUERY_COMPLETE()
 			if (CanIncreaseRewardedQuestCounters(Quest)) then
 				DB.RewardedQuests[QuestID] = true
 			end
-			self:UpdateTimeRewarded(Quest, QuestID)
+			UpdateTimeRewarded(Quest, QuestID)
 		end
 	end
 	
 	self:StoreActiveQuests()
 	DB.WasInitialized = true
 	
-	self:UnregisterEvent("QUEST_QUERY_COMPLETE")
 	self:RegisterAllEvents()
 
 end
@@ -215,13 +212,13 @@ function WisdomKeeper:QUEST_TURNED_IN(...)
 	QuestID = DB.QuestNameToQuestID[QuestTitleTemp]
 	local Quest = Quests[QuestID]
 	if (Quest ~= nil) then 
-	
 		DB.ActiveQuests[QuestID] = nil
 		
 		local QuestName
 		for QName, QID in pairs(DB.QuestNameToQuestID) do
 			if (QID == QuestID) then
 				QuestName = QName
+				break
 			end
 		end
 		DB.QuestNameToQuestID[QuestName] = nil
@@ -229,8 +226,7 @@ function WisdomKeeper:QUEST_TURNED_IN(...)
 		if (CanIncreaseRewardedQuestCounters(Quest)) then
 			DB.RewardedQuests[QuestID] = true
 		end
-		
-		self:UpdateTimeRewarded(Quest, QuestID)
+		UpdateTimeRewarded(Quest, QuestID)
 		HandyNotes:UpdateMinimapPlugin("WisdomKeeper")
 	end
 end
@@ -243,7 +239,7 @@ function WisdomKeeper:QUEST_ACCEPTED(EventName, QuestLogIndex)
 			if (CanIncreaseRewardedQuestCounters(Quest)) then 
 				DB.RewardedQuests[QuestID] = true;
 			end
-			self:UpdateTimeRewarded(Quest, QuestID)
+			UpdateTimeRewarded(Quest, QuestID)
 		else 
 			DB.ActiveQuests[QuestID] = true
 			DB.QuestNameToQuestID[QuestName] = QuestID
@@ -288,11 +284,6 @@ function WisdomKeeper:SatisfyQuestMonth(Quest, QuestID)
 	return time() - DB.MonthlyQuests[QuestID] > MONTH_SECONDS
 end
 
-function WisdomKeeper:SatisfyQuestSeasonal(Quest, QuestID)
-	-- seasonal quests are not supported
-	return true
-end
-
 local QUEST_STATUS_NONE 		= 0 
 local QUEST_STATUS_ACTIVE 		= 1 
 local QUEST_STATUS_REWARDED 	= 2
@@ -318,7 +309,6 @@ function WisdomKeeper:CanTakeQuest(QuestID)
 	if (not self:SatisfyQuestDay(Quest, QuestID)) then return false end
 	if (not self:SatisfyQuestWeek(Quest, QuestID)) then return false end
 	if (not self:SatisfyQuestMonth(Quest, QuestID)) then return false end
-	if (not self:SatisfyQuestSeasonal(Quest, QuestID)) then return false end
 	return true
 end
 
@@ -441,7 +431,7 @@ end
 ------- HandyNotes plugin methods -----------
 
 local IconPath = "Interface\\AddOns\\WisdomKeeper\\icons\\QuestIcon"
-WisdomKeeper.AvailableQuestsAt = nil
+local AvailableQuestsAt = nil
 
 local function Iterate(ZoneQuestStarters, PrevHash)
 	if (ZoneQuestStarters == nil) then return nil end
@@ -454,7 +444,7 @@ local function Iterate(ZoneQuestStarters, PrevHash)
 			end
 		end
 		if (#AvailableQuests ~= 0) then
-			WisdomKeeper.AvailableQuestsAt[Hash] = AvailableQuests
+			AvailableQuestsAt[Hash] = AvailableQuests
 			return Hash, nil, IconPath, 1.3, 1.0
 		end
 		Hash, QuestsStarted = next(ZoneQuestStarters, Hash)
@@ -463,7 +453,7 @@ local function Iterate(ZoneQuestStarters, PrevHash)
 end
 
 function WisdomKeeper:GetNodes(MapFile, MiniMap, DungeonLevel)
-	WisdomKeeper.AvailableQuestsAt = {}
+	AvailableQuestsAt = {}
 	local ZoneIndex = MapFileToZoneIndex[MapFile]
 	return Iterate, QuestStarters[ZoneIndex], nil
 end
@@ -477,7 +467,7 @@ function WisdomKeeper:OnEnter(MapFile, Hash)
 	else
 		Tooltip:SetOwner(self, "ANCHOR_RIGHT")
 	end
-	local AvailableQuests = WisdomKeeper.AvailableQuestsAt[Hash]
+	local AvailableQuests = AvailableQuestsAt[Hash]
 	for i = 1, #AvailableQuests do
 		local QuestID = AvailableQuests[i]
 		local Quest = Quests[QuestID]

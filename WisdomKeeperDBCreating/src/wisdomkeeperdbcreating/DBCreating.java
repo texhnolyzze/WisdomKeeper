@@ -167,8 +167,8 @@ public class DBCreating {
             q.ru_title = get_name(doc);
             q.valid = is_valid_quest(doc);
             q.events_id = get_related_events(doc);
-            if (!add_quest(q.id, npc_quest_starters, true, doc) & !add_quest(q.id, obj_quest_starters, false, doc))
-                it.remove(); // no npcs or objects that starts this quest, remove it.
+            add_quest(q.id, npc_quest_starters, true, doc);
+			add_quest(q.id, obj_quest_starters, false, doc);
         }
         quest_starters.addAll(npc_quest_starters.values());
         quest_starters.addAll(obj_quest_starters.values());

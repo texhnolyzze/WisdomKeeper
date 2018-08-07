@@ -40,7 +40,7 @@ public class DBCreating {
     public static void main(String[] args) throws SQLException, IOException {
         collect_all_quests();
         process_quests();
-        parse_wow_circle();
+        parse_isengard_wow();
         process_quest_starters();
         all_to_lua_table();
     }
@@ -130,7 +130,7 @@ public class DBCreating {
         int reward_next_quest;
         List<Integer> dependent_quests = new ArrayList<>();
         int flags, special_flags;
-        List<Integer> events_id; // from wow - circle
+        List<Integer> events_id; // from isengard db (https://db.ezwow.org)
 		int event_id_for_quest;
         
         boolean valid;
@@ -153,7 +153,7 @@ public class DBCreating {
     
     static final Map<Integer, String> ru_event_name = new HashMap<>();
     
-    static void parse_wow_circle() throws IOException {
+    static void parse_isengard_wow() throws IOException {
         Map<Integer, QuestStarter> npc_quest_starters = new HashMap<>();
         Map<Integer, QuestStarter> obj_quest_starters = new HashMap<>();
         for (Iterator<Quest> it = quests.values().iterator(); it.hasNext();) {
@@ -162,7 +162,7 @@ public class DBCreating {
             if (doc.getElementById("inputbox-error") != null) {
                 System.out.println("ERROR: " + q.id);
                 e.events_id = Collections.EMPTY_LIST;
-				continue; //wow-circle db contains no information about this quest
+				continue; //isengard db contains no information about this quest
             }
             q.ru_title = get_name(doc);
             q.valid = is_valid_quest(doc);

@@ -52,12 +52,16 @@ local function IsMonthly(Quest)
 	return bit.band(QUEST_MONTHLY_SPECIAL_FLAG, Quest[SPECIAL_FLAGS_IDX]) ~= 0
 end
 
+local function IsSeasonal(Quest)
+	return Quest[SEASONAL_IDX] ~= 0
+end
+
 local function IsTracking(Quest)
 	return bit.band(QUEST_TRACKING_FLAG, Quest[FLAGS_IDX]) ~= 0
 end
 
 local function CanIncreaseRewardedQuestCounters(Quest)
-	return (not IsDaily(Quest) and (not IsRepeatable(Quest) or IsWeekly(Quest) or IsMonthly(Quest)))
+	return not IsDaily(Quest) and (not IsRepeatable(Quest) or IsWeekly(Quest) or IsMonthly(Quest) or IsSeasonal(Quest))
 end
 
 local function UpdateTimeRewarded(Quest, QuestID)
@@ -67,6 +71,8 @@ local function UpdateTimeRewarded(Quest, QuestID)
 		DB.WeeklyQuests[QuestID] = time()
 	elseif (IsMonthly(Quest)) then
 		DB.MonthlyQuests[QuestID] = time()
+	elseif (IsSeasonal(Quest)) then
+		DB.SeasonalQuests[QuestID] = time() -- I don't know how to use this information
 	end
 end
 
@@ -82,6 +88,7 @@ function WisdomKeeper:OnInitialize()
 			["DailyQuests"] = {},
 			["WeeklyQuests"] = {},
 			["MonthlyQuests"] = {},
+			["SeasonalQuests"] = {},
 			["QuestNameToQuestID"] = {}
 		}
 	}
@@ -150,11 +157,12 @@ end
 function WisdomKeeper:StoreActiveQuests()
 	local NumEntries, _ = GetNumQuestLogEntries()
 	for i = 1, NumEntries do
-		local QuestName, _, _, _, _, _, _, _, QuestID = GetQuestLogTitle(i)
-		local Quest = Quests[QuestID]
-		if (Quest ~= nil) then
-			DB.ActiveQuests[QuestID] = true
-			DB.QuestNameToQuestID[QuestName] = QuestID
+		local QuestName, _, _, _, IsHeader, _, _, _, QuestID = GetQuestLogTitle(i)
+		if (not IsHeader) then
+			if (Quests[QuestID] ~= nil) then
+				DB.ActiveQuests[QuestID] = true
+				DB.QuestNameToQuestID[QuestName] = QuestID
+			end
 		end
 	end
 end
@@ -268,33 +276,41 @@ DAY_SECONDS 	= 24 * 60 * 60
 WEEK_SECONDS 	= 7 * DAY_SECONDS
 MONTH_SECONDS 	= 30.4167 * DAY_SECONDS --As Google says :)
 
-function WisdomKeeper:SatisfyQuestDay(Quest, QuestID)
-	if (not IsDaily(Quest) or DB.DailyQuests[QuestID] == nil) then return true end
-	return time() - DB.DailyQuests[QuestID] > DAY_SECONDS
-end
-
-function WisdomKeeper:SatisfyQuestWeek(Quest, QuestID)
-	if (not IsWeekly(Quest) or DB.WeeklyQuests[QuestID] == nil) then return true end
-	return time() - DB.WeeklyQuests[QuestID] > WEEK_SECONDS_SECONDS
-end
-
-function WisdomKeeper:SatisfyQuestMonth(Quest, QuestID)
-	if (not IsMonthly(Quest) or DB.MonthlyQuests[QuestID] == nil) then return true end
-	return time() - DB.MonthlyQuests[QuestID] > MONTH_SECONDS
-end
-
 local QUEST_STATUS_NONE 		= 0 
-local QUEST_STATUS_ACTIVE 		= 1 
-local QUEST_STATUS_REWARDED 	= 2
+local QUEST_STATUS_INCOMPLETE 	= 1
+local QUEST_STATUS_FAILED 		= 2
+local QUEST_STATUS_COMPLETE		= 3 
+local QUEST_STATUS_REWARDED 	= 4
 
 function WisdomKeeper:GetQuestStatus(Quest, QuestID)
-	if (DB.ActiveQuests[QuestID] ~= nil) then return QUEST_STATUS_ACTIVE end
-	if (not IsRepeatable(Quest) and DB.RewardedQuests[QuestID] ~= nil) then return QUEST_STATUS_REWARDED end
+	if (DB.ActiveQuests[QuestID]) then 
+		local NumEntries, _ = GetNumQuestLogEntries()
+		for i = 1, NumEntries do
+			local _, _, _, _, IsHeader, _, IsComplete, _, QID = GetQuestLogTitle(i)
+			if (not IsHeader and QID == QuestID) then
+				if (IsComplete) then return QUEST_STATUS_COMPLETE end
+				if (IsComplete == -1) then return QUEST_STATUS_FAILED end
+				return QUEST_STATUS_INCOMPLETE
+			end
+		end
+	end
+	if (GetQuestRewardStatus(Quest, QuestID)) then return QUEST_STATUS_REWARDED end
 	return QUEST_STATUS_NONE
+end
+
+function WisdomKeeper:GetQuestRewardStatus(Quest, QuestID)
+	if (IsSeasonal(Quest)) then return (not SatisfyQuestSeasonal(Quest)) end
+	if (not IsRepeatable(Quest)) then return IsQuestRewarded(QuestID) end
+	return false
+end
+
+function WisdomKeeper:IsQuestRewarded(QuestID)
+	return DB.RewardedQuests[QuestID] ~= nil 
 end
 
 function WisdomKeeper:CanTakeQuest(QuestID)
 	local Quest = Quests[QuestID]
+	if (Quest[VALID_IDX] == 0) then return false end
 	if (not self:SatisfyQuestStatus(Quest, QuestID)) then return false end
 	if (not self:SatisfyQuestExclusiveGroup(Quest, QuestID)) then return false end
 	if (not self:SatisfyQuestClass(Quest)) then return false end
@@ -302,11 +318,10 @@ function WisdomKeeper:CanTakeQuest(QuestID)
 	if (not self:SatisfyQuestLevel(Quest)) then return false end
 	if (not self:SatisfyQuestSkill(Quest)) then return false end
 	if (not self:SatisfyQuestReputation(Quest)) then return false end
-	if (not self:SatisfyQuestPreviousQuest(Quest)) then return false end
-	if (not self:SatisfyQuestNextChain(Quest)) then return false end
-	if (not self:SatisfyQuestPrevChain(Quest)) then return false end
+	if (not self:SatisfyQuestDependentQuests(Quest)) then return false end
 	if (not self:SatisfyQuestDay(Quest, QuestID)) then return false end
 	if (not self:SatisfyQuestWeek(Quest, QuestID)) then return false end
+	if (not self:SatisfyQuestSeasonal(Quest, QuestID)) then return false end
 	if (not self:SatisfyQuestMonth(Quest, QuestID)) then return false end
 	return true
 end
@@ -324,8 +339,8 @@ function WisdomKeeper:SatisfyQuestExclusiveGroup(Quest, QuestID)
 		local ExcludeID = EGs[i]
 		if (ExcludeID ~= QuestID) then 
 			local ExcludeQuest = Quests[ExcludeID]
-			if (not self:SatisfyQuestDay(ExcludeQuest, ExcludeID) or not self:SatisfyQuestWeek(ExcludeQuest, ExcludeID)) then return false end
-			if (self:GetQuestStatus(ExcludeQuest, ExcludeID) ~= QUEST_STATUS_NONE) or (not (IsRepeatable(Quest) and IsRepeatable(ExcludeQuest)) and DB.RewardedQuests[ExcludeID] ~= nil) then return false end
+			if (not self:SatisfyQuestDay(ExcludeQuest, ExcludeID) or not self:SatisfyQuestWeek(ExcludeQuest, ExcludeID) or not self:SatisfyQuestSeasonal(ExcludeQuest, ExcludeID)) then return false end
+			if ((self:GetQuestStatus(ExcludeQuest, ExcludeID) ~= QUEST_STATUS_NONE) or (not (IsRepeatable(Quest) and IsRepeatable(ExcludeQuest)) and GetQuestRewardStatus(ExcludeQuest, ExcludeID))) then return false end
 		end
 	end
 	return true
@@ -352,54 +367,56 @@ function WisdomKeeper:SatisfyQuestLevel(Quest)
 end
 
 function WisdomKeeper:SatisfyQuestSkill(Quest)
-	local SkillID = Quest[REQUIRED_SKILL_ID_IDX]
+	local SkillID = Quest[REQ_SKILL_ID_IDX]
 	if (SkillID == 0) then return true end
 	for i = 1, GetNumSkillLines() do
 		local SkillName, _, _, SkillValue = GetSkillLineInfo(i)
 		local SID = RU_SkillNameToSkillID[SkillName]
-		if (SID == SkillID) then return SkillValue >= Quest[REQUIRED_SKILL_POINTS_IDX] end
+		if (SID == SkillID) then return SkillValue >= Quest[REQ_SKILL_POINTS_IDX] end
 	end
 	return false
 end
 
 function WisdomKeeper:SatisfyQuestReputation(Quest) 
-	local ReqMinRepFaction = Quest[REQUIRED_MIN_REP_FACTION_IDX]
+	local ReqMinRepFaction = Quest[REQ_MIN_REP_FACTION_IDX]
 	if (ReqMinRepFaction ~= 0) then 
 		local _, _, _, _, _, RepValue = GetFactionInfoByID(ReqMinRepFaction)
-		if (RepValue < Quest[REQUIRED_MIN_REP_VALUE_IDX]) then return false end
+		if (RepValue < Quest[REQ_MIN_REP_VALUE_IDX]) then return false end
 	end
-	local ReqMaxRepFaction = Quest[REQUIRED_MAX_REP_FACTION_IDX]
+	local ReqMaxRepFaction = Quest[REQ_MAX_REP_FACTION_IDX]
 	if (ReqMaxRepFaction ~= 0) then
 		local _, _, _, _, _, RepValue = GetFactionInfoByID(ReqMaxRepFaction)
-		if (RepValue > Quest[REQUIRED_MAX_REP_VALUE_IDX]) then return false end
+		if (RepValue > Quest[REQ_MAX_REP_VALUE_IDX]) then return false end
 	end
 	return true
 end
 
+function WisdomKeeper:SatisfyQuestDependentQuests(Quest)
+	return self:SatisfyQuestPreviousQuest(Quest) and self:SatisfyQuestDependentPreviousQuests(Quest)
+end
+
 function WisdomKeeper:SatisfyQuestPreviousQuest(Quest)
-	local PrevQuests = Quest[PREV_QUESTS_IDX]
-	if (#PrevQuests == 0) then return true end	
-	for i = 1, #PrevQuests do 
-		local PrevID = abs(PrevQuests[i])
-		local PrevQuest = Quests[PrevID]
-		if (PrevQuests[i] > 0 and DB.RewardedQuests[PrevID] ~= nil) then 
-			if (PrevQuest[EXCLUSIVE_GROUP_IDX] >= 0) then return true end
-			local EGs = ExclusiveGroups[PrevQuest[EXCLUSIVE_GROUP_IDX]]
-			for j = 1, #EGs do 
-				local ExcludeID = EGs[j]
-				if (ExcludeID ~= PrevID) then 
-					if (DB.RewardedQuests[ExcludeID] == nil) then return false end
-				end
-			end
-			return true
-		end
-		if (PrevQuests[i] < 0 and self:GetQuestStatus(PrevQuest, PrevID) ~= QUEST_STATUS_NONE) then
-			if (PrevQuest[EXCLUSIVE_GROUP_IDX] >= 0) then return true end
-			local EGs = ExclusiveGroups[PrevQuest[EXCLUSIVE_GROUP_IDX]]
-			for j = 1, #EGs do 
-				local ExcludeID = EGs[j]
-				if (ExcludeID ~= PrevID) then 
-					if (self:GetQuestStatus(Quests[ExcludeID], ExcludeID) ~= QUEST_STATUS_NONE) then return false end
+	local PrevQuestID = Quest[PREV_QUEST_IDX]
+	if (PrevQuestID == 0) then return true end
+	local AbsPrevQuestID = abs(PrevQuestID)
+	if (PrevQuestID > 0 and DB.RewardedQuests[AbsPrevQuestID] ~= nil) then return true end
+	if (PrevQuestID < 0 and self:GetQuestStatus(Quests[AbsPrevQuestID], AbsPrevQuestID) == QUEST_STATUS_INCOMPLETE) then return true end
+	return false
+end
+
+function WisdomKeeper:SatisfyQuestDependentPreviousQuests(Quest)
+	local DependentQuests = Quest[DEPENDENT_QUESTS_IDX]
+	if (not DependentQuests) then return true end
+	for i = 1, #DependentQuests do
+		DependentQuestID = DependentQuests[i]
+		DependentQuest = Quests[DependentQuestID]
+		if (IsQuestRewarded(DependentQuestID)) then
+			if (DependentQuest[EXCLUSIVE_GROUP_IDX] >= 0) then return true end
+			local EG = ExclusiveGroups[DependentQuest[EXCLUSIVE_GROUP_IDX]]
+			for j = 1, #EG do
+				local ExcludeID = EG[j]
+				if (ExcludeID ~= DependentQuestID) then
+					if (not IsQuestRewarded(ExcludeID)) then return false end
 				end
 			end
 			return true
@@ -408,23 +425,26 @@ function WisdomKeeper:SatisfyQuestPreviousQuest(Quest)
 	return false
 end
 
-function WisdomKeeper:SatisfyQuestNextChain(Quest)
-	local RewardNextQuestID = Quest[REWARD_NEXT_QUEST_IDX]
-	if (RewardNextQuestID ~= 0) then
-		local Status = self:GetQuestStatus(Quests[RewardNextQuestID], RewardNextQuest)
-		if (Status ~= QUEST_STATUS_NONE) then return false end
-	end
-	return true
+function WisdomKeeper:SatisfyQuestDay(Quest, QuestID)
+	if (not IsDaily(Quest) or not DB.DailyQuests[QuestID]) then return true end
+	return time() - DB.DailyQuests[QuestID] > DAY_SECONDS
 end
 
-function WisdomKeeper:SatisfyQuestPrevChain(Quest)
-	local PrevChainQuests = Quest[PREV_CHAIN_QUESTS_IDX]
-	if (#PrevChainQuests ~= 0) then
-		for i = 1, #PrevChainQuests do
-			if (DB.ActiveQuests[PrevChainQuests[i]] ~= nil) then return false end
-		end
-	end
-	return true
+function WisdomKeeper:SatisfyQuestWeek(Quest, QuestID)
+	if (not IsWeekly(Quest) or not DB.WeeklyQuests[QuestID]) then return true end
+	return time() - DB.WeeklyQuests[QuestID] > WEEK_SECONDS_SECONDS
+end
+
+function WisdomKeeper:SatisfyQuestMonth(Quest, QuestID)
+	if (not IsMonthly(Quest) or not DB.MonthlyQuests[QuestID]) then return true end
+	return time() - DB.MonthlyQuests[QuestID] > MONTH_SECONDS
+end
+
+function WisdomKeeper:SatisfyQuestSeasonal(Quest, QuestID)
+	if (not IsSeasonal(Quest)) then return true end
+	local EventSeasonalQuests = DB.SeasonalQuests[Quest[EVENT_FOR_QUEST_IDX]]
+	if (not EventSeasonalQuests) then return true end
+	return EventSeasonalQuests[QuestID] == nil
 end
 
 ------- HandyNotes plugin methods -----------

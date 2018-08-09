@@ -459,8 +459,8 @@ function WisdomKeeper:GetNodes(MapFile, MiniMap, DungeonLevel)
 		Hash, QuestStarters = next(Zone, Hash)
 		while (Hash ~= nil) do 
 			for i = 1, #QuestStarters do
-				local QuestStarterType = QuestStarters[i][1]
-				local QuestStarterID = QuestStarters[i][2]
+				local QuestStarterType = QuestStarters[i][QUEST_STARTER_TYPE_IDX]
+				local QuestStarterID = QuestStarters[i][QUEST_STARTER_ID_IDX]
 				local QuestsStarted = GlobalQuestStarters[QuestStarterType][QuestStarterID][QUESTS_STARTED_IDX]
 				for j = 1, #QuestsStarted do
 					local QuestID = QuestsStarted[j]
@@ -497,12 +497,12 @@ function WisdomKeeper:OnEnter(MapFile, Hash)
 		Tooltip:SetOwner(self, "ANCHOR_RIGHT")
 	end
 	local QuestStarters = Zones[MapFileToZoneIndex[MapFile]][Hash]
+	Tooltip:AddLine("Здесь находятся:", 1, 1, 0)
 	for i = 1, #QuestStarters do
-		local QuestStarterType = QuestStarters[i][1]
-		local QuestStarterID = QuestStarters[i][2]
+		local QuestStarterType = QuestStarters[i][QUEST_STARTER_TYPE_IDX]
+		local QuestStarterID = QuestStarters[i][QUEST_STARTER_ID_IDX]
 		local QuestStarter = GlobalQuestStarters[QuestStarterType][QuestStarterID]
-		Tooltip:AddLine("Здесь находzтся: ", 1, 1, 0)
-		local StringToShow = QuestStarter[QS_RU_NAME_IDX]
+		local StringToShow = QuestStarter[QS_RU_NAME_IDX] 
 		StringToShow = StringToShow .. ", (" .. QuestStarterTypeToString[QuestStarterType] .. ", ID: " .. QuestStarterID
 		local RelEvents = QuestStarter[QS_RELATED_EVENTS_IDX]
 		if (RelEvents ~= nil) then StringToShow = RelEventsToString(StringToShow, RelEvents) end

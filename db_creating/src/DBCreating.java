@@ -1,5 +1,3 @@
-package wisdomkeeperdbcreating;
-
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -46,9 +44,27 @@ public class DBCreating {
         try {
             collect_all_quests();
             process_quests();
-//            parse_isengard_wow();
-//            process_quest_starters();
-//            all_to_lua_table();
+            parse_wow_circle();
+            // 3, 4, 5 are id's of same event (Lunart festival)
+            ru_event_name.remove(4);
+            ru_event_name.remove(5);
+            List<Integer> l = Arrays.asList(4, 5);
+            for (QuestStarter qs : quest_starters) {
+                if (qs.events_id.contains(4) || qs.events_id.contains(5)) {
+                    qs.events_id.removeAll(l);
+                    if (!qs.events_id.contains(3))
+                        qs.events_id.add(3);
+                }
+            }
+            for (Quest q : quests.values()) {
+                if (q.events_id.contains(4) || q.events_id.contains(5)) {
+                    q.events_id.removeAll(l);
+                    if (!q.events_id.contains(3))
+                        q.events_id.add(3);
+                }
+            }
+            process_quest_starters();
+            all_to_lua_table();
         } catch (Exception e) {
             logger.flush();
             logger.close();
@@ -200,7 +216,7 @@ public class DBCreating {
         return doc;
     }
     
-    static void parse_isengard_wow() throws IOException {
+    static void parse_wow_circle() throws IOException {
         Map<Integer, QuestStarter> npc_quest_starters = new HashMap<>();
         Map<Integer, QuestStarter> obj_quest_starters = new HashMap<>();
         for (Iterator<Quest> it = quests.values().iterator(); it.hasNext();) {
@@ -355,14 +371,7 @@ public class DBCreating {
     static final Map<Integer, Map<Long, List<QuestStarter>>> zones = new HashMap<>();
     
     static void process_quest_starters() {
-        ru_event_name.remove(4);
-        ru_event_name.remove(5);
         for (QuestStarter qs : quest_starters) {
-            // 3, 4, 5 are id's of same event (Lunart festival)
-            if (qs.events_id.contains(3) || qs.events_id.contains(4) || qs.events_id.contains(5)) {
-                qs.events_id.removeAll(Arrays.asList(3, 4, 5));
-                qs.events_id.add(3);
-            }
             for (Pair<Integer, float[]> coords : qs.coords) {
                 int map = coords.getKey();
                 Map<Long, List<QuestStarter>> all = zones.get(map);
@@ -467,6 +476,8 @@ public class DBCreating {
         pw.append("\t}\n");
         pw.append("}").flush();
         pw = new PrintWriter(new File("Zones.lua"));
+        pw.append("QUEST_STARTER_TYPE_IDX = 1\n");
+        pw.append("QUEST_STARTER_ID_IDX = 2\n\n");
         pw.append("Zones = {\n");
         for (Map.Entry<Integer, Map<Long, List<QuestStarter>>> e1 : zones.entrySet()) {
             pw.append("\t[").append(e1.getKey().toString()).append("] = {\n");

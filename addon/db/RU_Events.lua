@@ -21,5 +21,5 @@ RU_Event = {
 	[46] = "[Zalazane's Fall]",
 	[47] = "[Operation: Gnomeregan]",
 	[48] = "[Twilight's Cult &amp; Elemental Invasion]",
-	[49] = "[Winter Veil: Gifts]"
+	[49] = "[Winter Veil: Gifts]",
 }

@@ -46,9 +46,9 @@ public class DBCreating {
         try {
             collect_all_quests();
             process_quests();
-            parse_isengard_wow();
-            process_quest_starters();
-            all_to_lua_table();
+//            parse_isengard_wow();
+//            process_quest_starters();
+//            all_to_lua_table();
         } catch (Exception e) {
             logger.flush();
             logger.close();
@@ -379,7 +379,7 @@ public class DBCreating {
     
     static void all_to_lua_table() throws IOException {
         PrintWriter pw = new PrintWriter(new File("Quests.lua"));
-        pw.append("TITLE_IDX = 1\n");
+        pw.append("Q_RU_NAME_IDX = 1\n");
         pw.append("MIN_LEVEL_IDX = 2\n");
         pw.append("MAX_LEVEL_IDX = 3\n");
         pw.append("ALLOWABLE_RACES_IDX = 4\n");
@@ -395,7 +395,7 @@ public class DBCreating {
         pw.append("EXCLUSIVE_GROUP_IDX = 14\n");
         pw.append("PREV_QUEST_IDX = 15\n");
         pw.append("DEPENDENT_QUESTS_IDX = 16\n");
-        pw.append("RELATED_EVENTS_IDX = 17\n");
+        pw.append("Q_RELATED_EVENTS_IDX = 17\n");
         pw.append("SEASONAL_IDX = 18\n");
         pw.append("EVENT_FOR_QUEST_IDX = 19\n");
         pw.append("VALID_IDX = 20\n\n");
@@ -439,9 +439,9 @@ public class DBCreating {
         }
         pw.append("}").flush();
         pw = new PrintWriter(new File("QuestStarters.lua"));
-        pw.append("RU_NAME_IDX = 1\n");
+        pw.append("QS_RU_NAME_IDX = 1\n");
         pw.append("QUESTS_STARTED_IDX = 2\n");
-        pw.append("RELATED_EVENTS_IDX = 3\n");
+        pw.append("QS_RELATED_EVENTS_IDX = 3\n\n");
         pw.append("QuestStarters = {\n");
         pw.append("\t[1] = {\n");
         for (QuestStarter qs : quest_starters) {

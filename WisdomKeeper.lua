@@ -288,9 +288,9 @@ function WisdomKeeper:GetQuestStatus(Quest, QuestID)
 		for i = 1, NumEntries do
 			local _, _, _, _, IsHeader, _, IsComplete, _, QID = GetQuestLogTitle(i)
 			if (not IsHeader and QID == QuestID) then
-				if (IsComplete) then return QUEST_STATUS_COMPLETE end
-				if (IsComplete == -1) then return QUEST_STATUS_FAILED end
-				return QUEST_STATUS_INCOMPLETE
+				if (IsComplete == 1) then return QUEST_STATUS_COMPLETE 
+				elseif (IsComplete == -1) then return QUEST_STATUS_FAILED 
+				else return QUEST_STATUS_INCOMPLETE end
 			end
 		end
 	end
@@ -450,31 +450,41 @@ end
 ------- HandyNotes plugin methods -----------
 
 local IconPath = "Interface\\AddOns\\WisdomKeeper\\icons\\QuestIcon"
-local AvailableQuestsAt = nil
-
-local function Iterate(ZoneQuestStarters, PrevHash)
-	if (ZoneQuestStarters == nil) then return nil end
-	Hash, QuestsStarted = next(ZoneQuestStarters, PrevHash)
-	while (Hash ~= nil) do
-		local AvailableQuests = {}
-		for i = 1, #QuestsStarted do
-			if (WisdomKeeper:CanTakeQuest(QuestsStarted[i])) then
-				table.insert(AvailableQuests, QuestsStarted[i])
-			end
-		end
-		if (#AvailableQuests ~= 0) then
-			AvailableQuestsAt[Hash] = AvailableQuests
-			return Hash, nil, IconPath, 1.3, 1.0
-		end
-		Hash, QuestsStarted = next(ZoneQuestStarters, Hash)
-	end
-	return nil, nil, nil, nil
-end
 
 function WisdomKeeper:GetNodes(MapFile, MiniMap, DungeonLevel)
-	AvailableQuestsAt = {}
-	local ZoneIndex = MapFileToZoneIndex[MapFile]
-	return Iterate, QuestStarters[ZoneIndex], nil
+	local Zone = Zones[MapFileToZoneIndex[MapFile]]
+	if (not Zone) then return nil end
+	local Hash, QuestStarters
+	return function()
+		Hash, QuestStarters = next(Zone, Hash)
+		while (Hash ~= nil) do 
+			for i = 1, #QuestStarters do
+				local QuestStarterType = QuestStarters[i][1]
+				local QuestStarterID = QuestStarters[i][2]
+				local QuestsStarted = GlobalQuestStarters[QuestStarterType][QuestStarterID][QUESTS_STARTED_IDX]
+				for j = 1, #QuestsStarted do
+					local QuestID = QuestsStarted[j]
+					if (self:CanTakeQuest(QuestID)) then return Hash, nil, IconPath, 1.3, 1.0 end
+				end
+			end
+			Hash, QuestStarters = next(Zone, Hash)
+		end
+		return nil
+	end
+end
+
+local QuestStarterTypeToString = {
+	[1] = "НПС",
+	[2] = "Объект"
+}
+
+local function RelEventsToString(Dest, RelEvents) 
+	Dest = Dest .. ", Связанные события: ("
+	for j = 1, #RelEvents - 1 do
+		Dest = Dest .. RU_Event[RelEvents[j]] .. ", "
+	end
+	Dest = Dest .. RU_Event[RelEvents[#RelEvents]] .. ")"
+	return Dest
 end
 
 function WisdomKeeper:OnEnter(MapFile, Hash)
@@ -486,14 +496,31 @@ function WisdomKeeper:OnEnter(MapFile, Hash)
 	else
 		Tooltip:SetOwner(self, "ANCHOR_RIGHT")
 	end
-	local AvailableQuests = AvailableQuestsAt[Hash]
-	for i = 1, #AvailableQuests do
-		local QuestID = AvailableQuests[i]
-		local Quest = Quests[QuestID]
-		local QuestName = Quest[TITLE_IDX]
-		local ShowString = "QUEST: " .. QuestName .. ", ID: " .. QuestID
-		if (Quest[IS_EVENT_QUEST_IDX] == 1) then ShowString = ShowString .. " (EVENT QUEST)" end
-		Tooltip:AddLine(ShowString, 1, 1, 0)
+	local QuestStarters = Zones[MapFileToZoneIndex[MapFile]][Hash]
+	for i = 1, #QuestStarters do
+		local QuestStarterType = QuestStarters[i][1]
+		local QuestStarterID = QuestStarters[i][2]
+		local QuestStarter = GlobalQuestStarters[QuestStarterType][QuestStarterID]
+		local StringToShow = "Здесь находится " .. QuestStarter[RU_NAME_IDX]
+		StringToShow = StringToShow .. ", (" .. QuestStarterTypeToString[QuestStarterType] .. ", ID: " .. QuestStarterID
+		local RelEvents = QuestStarter[QS_RELATED_EVENTS_IDX]
+		if (RelEvents ~= nil) then StringToShow = RelEventsToString(StringToShow, RelEvents) end
+		StringToShow = StringToShow .. ")"
+		Tooltip:AddLine(StringToShow, 1, 1, 0)
+		Tooltip:AddLine("Доступные квесты:", 1, 1, 0)
+		local QuestsStarted = QuestStarter[QUESTS_STARTED_IDX]
+		for j = 1, #QuestsStarted do
+			local QuestID = QuestsStarted[j]
+			if (self:CanTakeQuest(QuestID)) then
+				local QuestName = Quests[QuestID][Q_RU_NAME_IDX]
+				StringToShow = QuestName .. ", ID: " .. QuestID
+				RelEvents = Quests[QuestID][Q_RELATED_EVENTS_IDX]
+				if (RelEvents ~= nil) then StringToShow = RelEventsToString(StringToShow, RelEvents) end
+				Tooltip:AddLine(StringToShow, 1, 1, 0)
+			end
+		end
+		if (i < #QuestStarters)
+			Tooltip:AddLine("", 1, 1, 0)
 	end
 	Tooltip:Show()
 end

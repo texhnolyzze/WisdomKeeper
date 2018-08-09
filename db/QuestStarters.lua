@@ -1,7 +1,8 @@
-RU_NAME_IDX = 1
+QS_RU_NAME_IDX = 1
 QUESTS_STARTED_IDX = 2
-RELATED_EVENTS_IDX = 3
-QuestStarters = {
+QS_RELATED_EVENTS_IDX = 3
+
+GlobalQuestStarters = {
 	[1] = {
 		[20482] = {"Проекция командира Амира", {10384, 10385, 10405, 10406, 10408}, nil},
 		[16397] = {"Ардайн Речной Ветер", {9258}, nil},

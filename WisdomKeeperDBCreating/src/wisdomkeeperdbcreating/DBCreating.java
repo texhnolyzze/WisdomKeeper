@@ -442,7 +442,7 @@ public class DBCreating {
         pw.append("QS_RU_NAME_IDX = 1\n");
         pw.append("QUESTS_STARTED_IDX = 2\n");
         pw.append("QS_RELATED_EVENTS_IDX = 3\n\n");
-        pw.append("QuestStarters = {\n");
+        pw.append("GlobalQuestStarters = {\n");
         pw.append("\t[1] = {\n");
         for (QuestStarter qs : quest_starters) {
             if (qs.npc) {

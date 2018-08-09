@@ -501,13 +501,14 @@ function WisdomKeeper:OnEnter(MapFile, Hash)
 		local QuestStarterType = QuestStarters[i][1]
 		local QuestStarterID = QuestStarters[i][2]
 		local QuestStarter = GlobalQuestStarters[QuestStarterType][QuestStarterID]
-		local StringToShow = "Здесь находится " .. QuestStarter[RU_NAME_IDX]
+		Tooltip:AddLine("Здесь находzтся: ", 1, 1, 0)
+		local StringToShow = QuestStarter[QS_RU_NAME_IDX]
 		StringToShow = StringToShow .. ", (" .. QuestStarterTypeToString[QuestStarterType] .. ", ID: " .. QuestStarterID
 		local RelEvents = QuestStarter[QS_RELATED_EVENTS_IDX]
 		if (RelEvents ~= nil) then StringToShow = RelEventsToString(StringToShow, RelEvents) end
 		StringToShow = StringToShow .. ")"
 		Tooltip:AddLine(StringToShow, 1, 1, 0)
-		Tooltip:AddLine("Доступные квесты:", 1, 1, 0)
+		Tooltip:AddLine("Доступные у нее/него квесты:", 1, 1, 0)
 		local QuestsStarted = QuestStarter[QUESTS_STARTED_IDX]
 		for j = 1, #QuestsStarted do
 			local QuestID = QuestsStarted[j]

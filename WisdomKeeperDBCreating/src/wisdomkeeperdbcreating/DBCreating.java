@@ -20,6 +20,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -354,7 +355,14 @@ public class DBCreating {
     static final Map<Integer, Map<Long, List<QuestStarter>>> zones = new HashMap<>();
     
     static void process_quest_starters() {
+        ru_event_name.remove(4);
+        ru_event_name.remove(5);
         for (QuestStarter qs : quest_starters) {
+            // 3, 4, 5 are id's of same event (Lunart festival)
+            if (qs.events_id.contains(3) || qs.events_id.contains(4) || qs.events_id.contains(5)) {
+                qs.events_id.removeAll(Arrays.asList(3, 4, 5));
+                qs.events_id.add(3);
+            }
             for (Pair<Integer, float[]> coords : qs.coords) {
                 int map = coords.getKey();
                 Map<Long, List<QuestStarter>> all = zones.get(map);
@@ -409,7 +417,7 @@ public class DBCreating {
             pw.append(q.req_skill_points + ", ");
             pw.append(q.exclusive_group + ", ");
             pw.append(q.prev_quest_id + ", ");
-            pw.append(q.dependent_quests.isEmpty() ? "nil" : q.dependent_quests.toString().replace('[', '{').replace(']', '}') + ", ");
+            pw.append(q.dependent_quests.isEmpty() ? "nil" : q.dependent_quests.toString().replace('[', '{').replace(']', '}')).append(", ");
             pw.append(q.events_id.isEmpty() ? "nil" : q.events_id.toString().replace('[', '{').replace(']', '}')).append(", ");
             pw.append(is_seasonal(q) ? "1" : "0").append(", ");
             pw.append(q.event_id_for_quest + "").append(", ");
@@ -467,7 +475,7 @@ public class DBCreating {
                 pw.append("\t\t[").append(e2.getKey().toString()).append("] = {");
                 for (Iterator<QuestStarter> it1 = e2.getValue().iterator(); it1.hasNext();) {
                     QuestStarter qs = it1.next();
-                    pw.append("{").append(qs.npc ? "1" : "2").append(", ").append(qs.id + " ").append("}");
+                    pw.append("{").append(qs.npc ? "1" : "2").append(", ").append(qs.id + "").append("}");
                     if (it1.hasNext())
                         pw.append(", ");
                 }
@@ -476,7 +484,7 @@ public class DBCreating {
                     pw.append(",");
                 pw.append("\n");
             }
-            pw.append("},\n");
+            pw.append("\t},\n");
         }
         pw.append("}").flush();
     }

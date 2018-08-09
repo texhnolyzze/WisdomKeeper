@@ -2,8 +2,6 @@ RU_Event = {
 	[1] = "Огненный солнцеворот",
 	[2] = "Зимний Покров",
 	[3] = "Ярмарка Новолуния",
-	[4] = "Ярмарка Новолуния",
-	[5] = "Ярмарка Новолуния",
 	[6] = "[New Year's Eve]",
 	[7] = "Лунный фестиваль",
 	[8] = "Любовная лихорадка",
@@ -23,5 +21,5 @@ RU_Event = {
 	[46] = "[Zalazane's Fall]",
 	[47] = "[Operation: Gnomeregan]",
 	[48] = "[Twilight's Cult &amp; Elemental Invasion]",
-	[49] = "[Winter Veil: Gifts]",
+	[49] = "[Winter Veil: Gifts]"
 }

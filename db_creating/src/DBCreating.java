@@ -45,7 +45,7 @@ public class DBCreating {
             collect_all_quests();
             process_quests();
             parse_wow_circle();
-            // 3, 4, 5 are id's of same event (Lunart festival)
+            // 3, 4, 5 are id's of same event (Darkmoon Faire)
             ru_event_name.remove(4);
             ru_event_name.remove(5);
             List<Integer> l = Arrays.asList(4, 5);
@@ -476,8 +476,6 @@ public class DBCreating {
         pw.append("\t}\n");
         pw.append("}").flush();
         pw = new PrintWriter(new File("Zones.lua"));
-        pw.append("QUEST_STARTER_TYPE_IDX = 1\n");
-        pw.append("QUEST_STARTER_ID_IDX = 2\n\n");
         pw.append("Zones = {\n");
         for (Map.Entry<Integer, Map<Long, List<QuestStarter>>> e1 : zones.entrySet()) {
             pw.append("\t[").append(e1.getKey().toString()).append("] = {\n");
@@ -486,7 +484,7 @@ public class DBCreating {
                 pw.append("\t\t[").append(e2.getKey().toString()).append("] = {");
                 for (Iterator<QuestStarter> it1 = e2.getValue().iterator(); it1.hasNext();) {
                     QuestStarter qs = it1.next();
-                    pw.append("{").append(qs.npc ? "1" : "2").append(", ").append(qs.id + "").append("}");
+                    pw.append("").append(qs.npc ? "1" : "2").append(", ").append(qs.id + "").append("");
                     if (it1.hasNext())
                         pw.append(", ");
                 }

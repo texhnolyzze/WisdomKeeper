@@ -340,7 +340,7 @@ function WisdomKeeper:SatisfyQuestExclusiveGroup(Quest, QuestID)
 		if (ExcludeID ~= QuestID) then 
 			local ExcludeQuest = Quests[ExcludeID]
 			if (not self:SatisfyQuestDay(ExcludeQuest, ExcludeID) or not self:SatisfyQuestWeek(ExcludeQuest, ExcludeID) or not self:SatisfyQuestSeasonal(ExcludeQuest, ExcludeID)) then return false end
-			if ((self:GetQuestStatus(ExcludeQuest, ExcludeID) ~= QUEST_STATUS_NONE) or (not (IsRepeatable(Quest) and IsRepeatable(ExcludeQuest)) and GetQuestRewardStatus(ExcludeQuest, ExcludeID))) then return false end
+			if (self:GetQuestStatus(ExcludeQuest, ExcludeID) ~= QUEST_STATUS_NONE or (not (IsRepeatable(Quest) and IsRepeatable(ExcludeQuest)) and GetQuestRewardStatus(ExcludeQuest, ExcludeID))) then return false end
 		end
 	end
 	return true
@@ -458,9 +458,9 @@ function WisdomKeeper:GetNodes(MapFile, MiniMap, DungeonLevel)
 	return function()
 		Hash, QuestStarters = next(Zone, Hash)
 		while (Hash ~= nil) do 
-			for i = 1, #QuestStarters do
-				local QuestStarterType = QuestStarters[i][QUEST_STARTER_TYPE_IDX]
-				local QuestStarterID = QuestStarters[i][QUEST_STARTER_ID_IDX]
+			for i = 1, #QuestStarters, 2 do
+				local QuestStarterType = QuestStarters[i]
+				local QuestStarterID = QuestStarters[i + 1]
 				local QuestsStarted = GlobalQuestStarters[QuestStarterType][QuestStarterID][QUESTS_STARTED_IDX]
 				for j = 1, #QuestsStarted do
 					local QuestID = QuestsStarted[j]
@@ -498,9 +498,9 @@ function WisdomKeeper:OnEnter(MapFile, Hash)
 	end
 	local QuestStarters = Zones[MapFileToZoneIndex[MapFile]][Hash]
 	Tooltip:AddLine("Здесь находятся:", 1, 1, 0)
-	for i = 1, #QuestStarters do
-		local QuestStarterType = QuestStarters[i][QUEST_STARTER_TYPE_IDX]
-		local QuestStarterID = QuestStarters[i][QUEST_STARTER_ID_IDX]
+	for i = 1, #QuestStarters, 2 do
+		local QuestStarterType = QuestStarters[i]
+		local QuestStarterID = QuestStarters[i + 1]
 		local QuestStarter = GlobalQuestStarters[QuestStarterType][QuestStarterID]
 		local StringToShow = QuestStarter[QS_RU_NAME_IDX] 
 		StringToShow = StringToShow .. ", (" .. QuestStarterTypeToString[QuestStarterType] .. ", ID: " .. QuestStarterID

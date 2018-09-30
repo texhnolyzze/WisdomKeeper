@@ -79,7 +79,6 @@ end
 ---------------------------------------------------
 
 function WisdomKeeper:OnInitialize()
-
 	local defaults = {
 		["char"] = {
 			["WasInitialized"] = false,
@@ -92,12 +91,9 @@ function WisdomKeeper:OnInitialize()
 			["QuestNameToQuestID"] = {}
 		}
 	}
-	
 	self.db = LibStub("AceDB-3.0"):New("WisdomKeeperDBPC", defaults)
 	DB = self.db["char"]
-	
 	self:RegisterEvent("PLAYER_ENTERING_WORLD")
-	
 end
 
 function WisdomKeeper:OnEnable() end
@@ -115,27 +111,20 @@ end
 --------------The first launch of the addon. No character data yet.------------------
 
 function WisdomKeeper:InitialiazeCharacterDB()
-
 	local _, RaceName = UnitRace("player")
 	local RaceMask = RaceMask[RaceName] 
 	DB.RaceMask = RaceMask
-	
 	local _, PlayerClass = UnitClass("player")
 	local ClassMask = ClassMask[PlayerClass]
 	DB.ClassMask = ClassMask
-	
 	local Level = UnitLevel("player")
 	DB.Level = Level
-	
 	self:RegisterEvent("QUEST_QUERY_COMPLETE")
 	QueryQuestsCompleted()
-	
 end
 
 function WisdomKeeper:QUEST_QUERY_COMPLETE()
-
 	self:UnregisterEvent("QUEST_QUERY_COMPLETE")
-
 	local CompletedQuests = GetQuestsCompleted({})
 	for QuestID, _ in pairs(CompletedQuests) do
 		local Quest = Quests[QuestID]
@@ -146,12 +135,9 @@ function WisdomKeeper:QUEST_QUERY_COMPLETE()
 			UpdateTimeRewarded(Quest, QuestID)
 		end
 	end
-	
 	self:StoreActiveQuests()
 	DB.WasInitialized = true
-	
 	self:RegisterAllEvents()
-
 end
 
 function WisdomKeeper:StoreActiveQuests()
@@ -170,27 +156,21 @@ end
 ---------------------------------------------------------------
 
 function WisdomKeeper:RegisterAllEvents()
-
+	HandyNotes:RegisterPluginDB("WisdomKeeper", self, nil)
 	self:RegisterEvent("PLAYER_LEVEL_UP")
 	self:RegisterEvent("QUEST_ACCEPTED")
 	self:RegisterEvent("QUEST_COMPLETE")
-	
+	self:SecureHook("GetQuestReward", self.QUEST_TURNED_IN)
 	AbandonQuestSourceFunc = StaticPopupDialogs["ABANDON_QUEST"].OnAccept
 	StaticPopupDialogs["ABANDON_QUEST"].OnAccept = function()
 		self:QUEST_ABANDONED()
 		AbandonQuestSourceFunc()
 	end
-	
 	AbandonQuestWithItemsSourceFunc = StaticPopupDialogs["ABANDON_QUEST_WITH_ITEMS"].OnAccept
 	StaticPopupDialogs["ABANDON_QUEST_WITH_ITEMS"].OnAccept = function()
 		self:QUEST_ABANDONED()
 		AbandonQuestWithItemsSourceFunc()
 	end
-	
-	self:SecureHook("GetQuestReward", self.QUEST_TURNED_IN)
-	
-	HandyNotes:RegisterPluginDB("WisdomKeeper", self, nil)
-	
 end
 
 function WisdomKeeper:PLAYER_LEVEL_UP(EventName, ...)
@@ -220,7 +200,6 @@ function WisdomKeeper:QUEST_TURNED_IN(...)
 	local Quest = Quests[QuestID]
 	if (Quest ~= nil) then 
 		DB.ActiveQuests[QuestID] = nil
-		
 		local QuestName
 		for QName, QID in pairs(DB.QuestNameToQuestID) do
 			if (QID == QuestID) then
@@ -229,7 +208,6 @@ function WisdomKeeper:QUEST_TURNED_IN(...)
 			end
 		end
 		DB.QuestNameToQuestID[QuestName] = nil
-		
 		if (CanIncreaseRewardedQuestCounters(Quest)) then
 			DB.RewardedQuests[QuestID] = true
 		end
@@ -294,13 +272,13 @@ function WisdomKeeper:GetQuestStatus(Quest, QuestID)
 			end
 		end
 	end
-	if (GetQuestRewardStatus(Quest, QuestID)) then return QUEST_STATUS_REWARDED end
+	if (self:GetQuestRewardStatus(Quest, QuestID)) then return QUEST_STATUS_REWARDED end
 	return QUEST_STATUS_NONE
 end
 
 function WisdomKeeper:GetQuestRewardStatus(Quest, QuestID)
-	if (IsSeasonal(Quest)) then return (not SatisfyQuestSeasonal(Quest)) end
-	if (not IsRepeatable(Quest)) then return IsQuestRewarded(QuestID) end
+	if (IsSeasonal(Quest)) then return (not self:SatisfyQuestSeasonal(Quest)) end
+	if (not IsRepeatable(Quest)) then return self:IsQuestRewarded(QuestID) end
 	return false
 end
 
@@ -340,7 +318,7 @@ function WisdomKeeper:SatisfyQuestExclusiveGroup(Quest, QuestID)
 		if (ExcludeID ~= QuestID) then 
 			local ExcludeQuest = Quests[ExcludeID]
 			if (not self:SatisfyQuestDay(ExcludeQuest, ExcludeID) or not self:SatisfyQuestWeek(ExcludeQuest, ExcludeID) or not self:SatisfyQuestSeasonal(ExcludeQuest, ExcludeID)) then return false end
-			if (self:GetQuestStatus(ExcludeQuest, ExcludeID) ~= QUEST_STATUS_NONE or (not (IsRepeatable(Quest) and IsRepeatable(ExcludeQuest)) and GetQuestRewardStatus(ExcludeQuest, ExcludeID))) then return false end
+			if (self:GetQuestStatus(ExcludeQuest, ExcludeID) ~= QUEST_STATUS_NONE or (not (IsRepeatable(Quest) and IsRepeatable(ExcludeQuest)) and self:GetQuestRewardStatus(ExcludeQuest, ExcludeID))) then return false end
 		end
 	end
 	return true
@@ -410,13 +388,13 @@ function WisdomKeeper:SatisfyQuestDependentPreviousQuests(Quest)
 	for i = 1, #DependentQuests do
 		DependentQuestID = DependentQuests[i]
 		DependentQuest = Quests[DependentQuestID]
-		if (IsQuestRewarded(DependentQuestID)) then
+		if (self:IsQuestRewarded(DependentQuestID)) then
 			if (DependentQuest[EXCLUSIVE_GROUP_IDX] >= 0) then return true end
 			local EG = ExclusiveGroups[DependentQuest[EXCLUSIVE_GROUP_IDX]]
 			for j = 1, #EG do
 				local ExcludeID = EG[j]
 				if (ExcludeID ~= DependentQuestID) then
-					if (not IsQuestRewarded(ExcludeID)) then return false end
+					if (not self:IsQuestRewarded(ExcludeID)) then return false end
 				end
 			end
 			return true
@@ -452,6 +430,10 @@ end
 local IconPath = "Interface\\AddOns\\WisdomKeeper\\icons\\QuestIcon"
 
 function WisdomKeeper:GetNodes(MapFile, MiniMap, DungeonLevel)
+	local CurrMapAreaID = GetCurrentMapAreaID()
+	if (CurrMapAreaID == 0 or CurrMapAreaID == 14 or CurrMapAreaID == 15 or CurrMapAreaID == 467 or CurrMapAreaID == 486) then
+		return nil -- continent showing
+	end
 	local Zone = Zones[MapFileToZoneIndex[MapFile]]
 	if (not Zone) then return nil end
 	local Hash, QuestStarters
@@ -464,7 +446,9 @@ function WisdomKeeper:GetNodes(MapFile, MiniMap, DungeonLevel)
 				local QuestsStarted = GlobalQuestStarters[QuestStarterType][QuestStarterID][QUESTS_STARTED_IDX]
 				for j = 1, #QuestsStarted do
 					local QuestID = QuestsStarted[j]
-					if (self:CanTakeQuest(QuestID)) then return Hash, nil, IconPath, 1.3, 1.0 end
+					if (self:CanTakeQuest(QuestID)) then
+						return Hash, nil, IconPath, 1.3, 1.0 
+					end
 				end
 			end
 			Hash, QuestStarters = next(Zone, Hash)
@@ -512,7 +496,7 @@ function WisdomKeeper:OnEnter(MapFile, Hash)
 		local QuestsStarted = QuestStarter[QUESTS_STARTED_IDX]
 		for j = 1, #QuestsStarted do
 			local QuestID = QuestsStarted[j]
-			if (self:CanTakeQuest(QuestID)) then
+			if (WisdomKeeper:CanTakeQuest(QuestID)) then
 				local QuestName = Quests[QuestID][Q_RU_NAME_IDX]
 				StringToShow = QuestName .. ", ID: " .. QuestID
 				RelEvents = Quests[QuestID][Q_RELATED_EVENTS_IDX]
@@ -520,8 +504,9 @@ function WisdomKeeper:OnEnter(MapFile, Hash)
 				Tooltip:AddLine(StringToShow, 1, 1, 0)
 			end
 		end
-		if (i < #QuestStarters)
+		if (i < #QuestStarters) then
 			Tooltip:AddLine("", 1, 1, 0)
+		end
 	end
 	Tooltip:Show()
 end

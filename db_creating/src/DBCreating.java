@@ -377,7 +377,7 @@ public class DBCreating {
                 Map<Long, List<QuestStarter>> all = zones.get(map);
                 if (all == null)
                     zones.put(map, all = new HashMap<>());
-                long hash = to_handy_notes_hash(coords.getValue()[0], coords.getValue()[1]);
+                long hash = to_handy_notes_hash(coords.getValue()[0] / 100f, coords.getValue()[1] / 100f);
                 List<QuestStarter> l = all.get(hash);
                 if (l == null)
                     all.put(hash, l = new ArrayList<>());

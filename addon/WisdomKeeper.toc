@@ -18,5 +18,7 @@ db\ExclusiveGroups.lua
 db\MapFileToZoneIndex.lua
 db\Quests.lua
 db\QuestStarters.lua
+db\RU_Events.lua
+db\Zones.lua
 
 WisdomKeeper.lua

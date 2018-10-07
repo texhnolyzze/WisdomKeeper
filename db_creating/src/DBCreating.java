@@ -7,6 +7,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.io.Serializable;
 import java.io.StringReader;
 import static java.lang.Math.abs;
 import static java.lang.Math.floor;
@@ -21,15 +22,21 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Scanner;
+import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javafx.util.Pair;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 
 /**
  *
@@ -40,31 +47,44 @@ public class DBCreating {
     static final String jdbc_url = "jdbc:mysql://localhost:3306/world";
     static final String user = "root", password = "admin";
     
+    static Connection jdbc_connection;
+    
+    static {
+        try {
+            jdbc_connection = DriverManager.getConnection(jdbc_url, user, password);
+        } catch (SQLException ex) {
+            Logger.getLogger(DBCreating.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+    
     public static void main(String[] args) throws SQLException, IOException {
         try {
             collect_all_quests();
-            process_quests();
-            parse_wow_circle();
-            // 3, 4, 5 are id's of same event (Darkmoon Faire)
-            ru_event_name.remove(4);
-            ru_event_name.remove(5);
-            List<Integer> l = Arrays.asList(4, 5);
-            for (QuestStarter qs : quest_starters) {
-                if (qs.events_id.contains(4) || qs.events_id.contains(5)) {
-                    qs.events_id.removeAll(l);
-                    if (!qs.events_id.contains(3))
-                        qs.events_id.add(3);
-                }
-            }
-            for (Quest q : quests.values()) {
-                if (q.events_id.contains(4) || q.events_id.contains(5)) {
-                    q.events_id.removeAll(l);
-                    if (!q.events_id.contains(3))
-                        q.events_id.add(3);
-                }
-            }
-            process_quest_starters();
-            all_to_lua_table();
+            collect_quests_require_edits();
+//            apply_edits();
+//            build_positive_exclusive_groups();
+//            collect_quest_conditions();
+//            parse_wow_circle();
+//            // 3, 4, 5 are id's of same event (Darkmoon Faire)
+//            ru_event_name.remove(4);
+//            ru_event_name.remove(5);
+//            List<Integer> l = Arrays.asList(4, 5);
+//            for (QuestStarter qs : quest_starters) {
+//                if (qs.events_id.contains(4) || qs.events_id.contains(5)) {
+//                    qs.events_id.removeAll(l);
+//                    if (!qs.events_id.contains(3))
+//                        qs.events_id.add(3);
+//                }
+//            }
+//            for (Quest q : quests.values()) {
+//                if (q.events_id.contains(4) || q.events_id.contains(5)) {
+//                    q.events_id.removeAll(l);
+//                    if (!q.events_id.contains(3))
+//                        q.events_id.add(3);
+//                }
+//            }
+//            process_quest_starters();
+//            all_to_lua_table();
         } catch (Exception e) {
             logger.flush();
             logger.close();
@@ -72,103 +92,354 @@ public class DBCreating {
         }
     }
     
-    static void collect_all_quests() throws SQLException {
-        Connection c = DriverManager.getConnection(jdbc_url, user, password);
-        Statement s = c.createStatement();  // 1     2              3          4           5           6
-        ResultSet rs = s.executeQuery("SELECT id, MinLevel, QuestSortID, RewardNextQuest, Flags, AllowableRaces FROM quest_template;");
+    static void collect_all_quests() throws SQLException, IOException {
+        Statement s = jdbc_connection.createStatement(); 
+        ResultSet rs = s.executeQuery("SELECT id FROM quest_template;");
         while (rs.next()) {
             int id = rs.getInt(1);
-            int min_level = rs.getInt(2);
-			int zone_or_sort = rs.getInt(3);
-            int reward_next_quest = rs.getInt(4);
-            int flags = rs.getInt(5);
-            int allowable_races = rs.getInt(6);
-            quests.put(id, new Quest(id, min_level, zone_or_sort, reward_next_quest, flags, allowable_races));
-        }                       //  1       2             3              4            5             6                7                  8                      9                      10                   11                   12               13
-        rs = s.executeQuery("SELECT id, MaxLevel, AllowableClasses, PrevQuestID, NextQuestID, ExclusiveGroup, RequiredSkillID, RequiredSkillPoints, RequiredMinRepFaction, RequiredMaxRepFaction, RequiredMinRepValue, RequiredMaxRepValue, SpecialFlags FROM quest_template_addon;");
-        while (rs.next()) {
-            int id = rs.getInt(1);
-            int special_flags = rs.getInt(13);
-            if ((special_flags & 8) != 0) {
-                    quests.remove(id);
-                    continue; // we don't need DF (dungeon find) quests
-            }
-            Quest q = quests.get(id);
-            q.max_level = rs.getInt(2);
-            q.allowable_classes = rs.getInt(3);
-            q.prev_quest_id = rs.getInt(4);
-            q.next_quest_id = rs.getInt(5);
-            q.exclusive_group = rs.getInt(6);
-            q.req_skill_id = rs.getInt(7);
-            q.req_skill_points = rs.getInt(8);
-            q.req_min_rep_faction = rs.getInt(9);
-            q.req_max_rep_faction = rs.getInt(10);
-            q.req_min_rep_value = rs.getInt(11);
-            q.req_max_rep_value = rs.getInt(12);
-            q.special_flags = special_flags;
-        }
-        rs = s.executeQuery("SELECT * FROM game_event_seasonal_questrelation;");
-        while (rs.next()) {
-                quests.get(rs.getInt(1)).event_id_for_quest = rs.getInt(2);
+            Document doc = get_document(quest_type, id);
+            List<Integer> prev = get_prev_quests_in_chain(doc);
+            List<Integer> req = get_quests(doc, required_quests);
+            List<Integer> req_one_of = get_quests(doc, required_one_of_quests);
+            List<Integer> active = get_quests(doc, quests_must_be_active);
+            Quest q = new Quest(id);
+            quests.put(id, q);
+            collect_base_quest_props(q, id, doc);
+            q.prev_quest_in_chain = prev.isEmpty() ? 0 : prev.get(0);
+            q.quest_must_be_active = active.isEmpty() ? 0 : active.get(0);
+            q.req_quests = req;
+            q.req_one_of_quests = req_one_of;
         }
     }
     
-    static void process_quests() {
-        Iterator<Quest> it = quests.values().iterator();
-        while (it.hasNext()) {
-            Quest q = it.next();
-            if (q.reward_next_quest != 0 && !quests.containsKey(q.reward_next_quest)) {
-                throw new RuntimeException();
+    static void collect_base_quest_props(Quest q, int id, Document doc) throws IOException, SQLException {
+        if (doc == null)
+            doc = get_document(quest_type, id);
+        Statement s = jdbc_connection.createStatement(); 
+        ResultSet rs = s.executeQuery("SELECT Flags FROM quest_template WHERE ID = " + id + ";");
+        q.allowable_races = get_allowable_races(doc);
+        q.allowable_classes = get_allowable_classes(doc);
+        int[] min_max = get_min_max_lvl(doc);
+        q.min_level = min_max[0];
+        q.max_level = min_max[1];
+        int[] req_skill = get_required_skill(doc);
+        q.req_skill_id = req_skill[0];
+        q.req_skill_points = req_skill[1];
+        q.zone_or_sort = get_zone_or_sort(id, doc);
+        q.flags = get_flags(id, doc);
+        rs.next();
+        if ((rs.getInt(1) & 1024) != 0)
+            q.flags |= 1024;
+        q.special_flags = get_special_flags(doc);
+        q.valid = is_valid_quest(doc);
+    }
+    
+    
+    static void collect_quests_require_edits() throws IOException {
+        Set<Integer> quests_require_edits = new HashSet<>();
+        for (Quest q : quests.values()) {
+            if (require_edits(q))
+                quests_require_edits.add(q.id);
+        }
+        PrintWriter pw = new PrintWriter(new File("quests_require_edits.txt"));
+        quests_require_edits.stream().sorted().forEach(quest -> pw.append(quest + "").append("\n"));
+        pw.flush();
+        pw.close();
+    }
+    
+    static boolean require_edits(Quest q) {
+        if (!q.req_one_of_quests.isEmpty())
+            return true;
+        if (q.prev_quest_in_chain != 0 && !q.req_quests.isEmpty())
+            return true;
+        boolean b = q.valid && ((q.prev_quest_in_chain != 0 && !quests.get(q.prev_quest_in_chain).valid) ||
+                    q.req_quests.stream().anyMatch(id -> !quests.get(id).valid) ||
+                    (!q.req_one_of_quests.isEmpty() && q.req_one_of_quests.stream().allMatch(id -> !quests.get(id).valid)) ||
+                    (q.quest_must_be_active != 0 && !quests.get(q.quest_must_be_active).valid));
+        return b;
+    }
+    
+    static File edits = new File("edits.txt"); //in this file edits about the structure of quest chains
+   
+    static void apply_edits() throws IOException, SQLException {
+        Scanner s = new Scanner(edits);
+        s.nextLine();
+        while (s.hasNextLine()) {
+            String line = s.nextLine();
+            String[] split = line.split("\\|");
+            if (split.length != 5)
+                continue;
+            int id = Integer.parseInt(split[0]);
+            Quest q = quests.get(id);
+            q.prev_quest_in_chain = Integer.parseInt(split[1]);
+            String[] req_quests = split[2].split(" ");
+            if (Integer.parseInt(req_quests[0]) == 0)
+                q.req_quests = Collections.EMPTY_LIST;
+            else {
+                q.req_quests = new ArrayList<>();
+                for (String str : req_quests)
+                    q.req_quests.add(Integer.parseInt(str));
             }
-            if (q.prev_quest_id != 0 && !quests.containsKey(abs(q.prev_quest_id))) {
-                throw new RuntimeException();
+            String[] req_one_of_quests = split[3].split(" ");
+            if (Integer.parseInt(req_one_of_quests[0]) == 0)
+                q.req_one_of_quests = Collections.EMPTY_LIST;
+            else {
+                q.req_one_of_quests = new ArrayList<>();
+                for (String str : req_one_of_quests)
+                    q.req_one_of_quests.add(Integer.parseInt(str));
             }
-            if (q.next_quest_id != 0) {
-                Quest next_q = quests.get(q.next_quest_id);
-                if (next_q == null)
-                    throw new RuntimeException();
-                next_q.dependent_quests.add(q.id);
-            }
-            if (q.exclusive_group != 0) {
-                List<Integer> exclusive_group = exclusive_groups.get(q.exclusive_group);
-                if (exclusive_group == null)
-                    exclusive_groups.put(q.exclusive_group, exclusive_group = new ArrayList<>());
-                exclusive_group.add(q.id);
+            q.quest_must_be_active = Integer.parseInt(split[4]);
+        }
+    }
+    
+    static final Map<Integer, List<Integer>> positive_eg = new HashMap<>();
+    
+    static void build_positive_exclusive_groups() throws SQLException, IOException {
+        Set<Integer> eg_found = new HashSet<>();
+        Statement s = jdbc_connection.createStatement(); 
+        ResultSet rs = s.executeQuery("SELECT id FROM quest_template;");
+        while (rs.next()) {
+            int id = rs.getInt(1);
+            if (eg_found.contains(id))
+                continue;
+            List<Integer> l = get_quests(get_document(quest_type, id), quests_finished_by_this_quest);
+            if (!l.isEmpty()) {
+                l.add(id);
+                eg_found.addAll(l);
+                for (int q_id : l)
+                    quests.get(q_id).positive_exclusive_group = id;
+                positive_eg.put(id, l);
             }
         }
+    }
+
+    static void collect_quest_conditions() throws SQLException, IOException {
+        Statement s = jdbc_connection.createStatement(); 
+        ResultSet rs = s.executeQuery("SELECT id FROM quest_template;");
+        while (rs.next()) {
+            int id = rs.getInt(1);
+            QuestConditions qc = get_conditions(id, get_document(quest_type, id));
+            if (qc != null)
+                conditions.put(id, qc);
+        }
+    }
+    
+    static final Pattern race_pattern = Pattern.compile("race=[0-9]+");
+    
+    static int get_allowable_races(Document doc) {
+        String s = doc.getElementById("infobox-contents0").nextElementSibling().html();
+        if (s.contains("Расы: Обе")) 
+            return 0;
+        else if (s.contains("Расы: Орда")) 
+            return 690;
+        else if (s.contains("Расы: Альянс")) 
+            return 1101;
+        else {
+            int races = 0;
+            Matcher m = race_pattern.matcher(s);
+            while (m.find()) 
+                races |= (1 << (Integer.parseInt(s.substring(m.start() + "race=".length(), m.end())) - 1));
+            return races;
+        }
+    }
+    
+    static final Pattern class_pattern = Pattern.compile("class=[0-9]+");
+    
+    static int get_allowable_classes(Document doc) {
+        String s = doc.getElementById("infobox-contents0").nextElementSibling().html();
+        if (!s.contains("Класс:") && !s.contains("Классы:")) 
+            return 0;
+        else {
+            int classes = 0;
+            Matcher m = class_pattern.matcher(s);
+            while (m.find()) 
+                classes |= (1 << (Integer.parseInt(s.substring(m.start() + "class=".length(), m.end())) - 1));
+            return classes;
+        }
+    }
+    
+    static final Pattern lvl_pattern = Pattern.compile("Требуется уровень: ([0-9]+)(\\s-\\s[0-9]+)*");
+
+    static int[] get_min_max_lvl(Document doc) {
+        String s = doc.getElementById("infobox-contents0").nextElementSibling().html();
+        Matcher m = lvl_pattern.matcher(s);
+        if (!m.find()) 
+            return new int[] {0, 0};
+        else {
+            String[] split = s.substring(m.start() + "Требуется уровень: ".length(), m.end()).split("-");
+            int min = Integer.parseInt(split[0].trim());
+            int max = split.length == 2 ? Integer.parseInt(split[1].trim()) : 0;
+            return new int[] {min, max};
+        }
+    }
+    
+    static final Pattern zone_or_sort = Pattern.compile("\"category\":-?[0-9]+");
+    
+    static int get_zone_or_sort(int quest_id, Document doc) throws SQLException {
+        String s = doc.getElementById("lv-generic").nextElementSibling().html();
+        Matcher m = zone_or_sort.matcher(s);
+        if (m.find())
+            return Integer.parseInt(s.substring(m.start() + "\"category\":".length(), m.end()));
+        else {
+            Statement statement = jdbc_connection.createStatement(); 
+            ResultSet rs = statement.executeQuery("SELECT QuestSortID FROM quest_template WHERE ID = " + quest_id + ";");
+            rs.next();
+            return rs.getInt(1);
+        }
+    }
+    
+    static int get_flags(int quest_id, Document doc) throws SQLException {
+        int flags = 0;
+        String str = doc.getElementById("infobox-contents0").nextElementSibling().html();
+        if (str.contains("Тип: [tooltip=tooltip_dailyquest]Ежедневно"))
+            flags = 4096;
+        if (str.contains("Тип: Раз в неделю"))
+            flags |= 32768;
+        return flags;
+    }
+    
+    static int get_special_flags(Document doc) {
+        int special_flags = 0;
+        String s = doc.getElementById("infobox-contents0").nextElementSibling().html();
+        if (s.contains("[li]Повторяемый[/li]"))
+            special_flags = 1;
+        if (s.contains("Тип: Ежемесячно"))
+            special_flags |= 16;
+        return special_flags;
+    }
+    
+    static final Pattern skill_pattern = Pattern.compile("Профессия: \\[skill=[0-9]+\\] \\([0-9]+\\)");
+    static final Pattern skill_id_pattern = Pattern.compile("skill=[0-9]+");
+    static final Pattern skill_req_points_pattern = Pattern.compile("\\([0-9]+\\)");
+    
+    static int[] get_required_skill(Document doc) {
+        String s = doc.getElementById("infobox-contents0").nextElementSibling().html();
+        Matcher m = skill_pattern.matcher(s);
+        if (!m.find())
+            return new int[] {0, 0};
+        else {
+            s = s.substring(m.start(), m.end());
+            m = skill_id_pattern.matcher(s);
+            m.find();
+            String[] split = s.substring(m.start(), m.end()).split("=");
+            int skill_id = Integer.parseInt(split[1]);
+            m = skill_req_points_pattern.matcher(s);
+            m.find();
+            int req_points = Integer.parseInt(s.substring(m.start(), m.end()).replaceAll("\\(|\\)", ""));
+            return new int[] {skill_id, req_points};
+        }
+    }
+    
+    static final int cond_reputation_rank   = 5;
+    static final int cond_questrewarderd    = 8;
+    static final int cond_questtaken        = 9;
+    static final int cond_quest_none        = 14;
+    static final int cond_quest_complete    = 28;
+    
+    static QuestConditions get_conditions(int quest_id, Document doc) {
+        Element e = doc.getElementById("tab-conditions");
+        if (e == null)
+            return null;
+        String s = e.children().first().html();
+        s = s.substring(37, s.length() - 76);
+        JsonReader r = new JsonReader(new StringReader(s));
+        r.setLenient(true);
+        JsonObject obj = gson.fromJson(r, JsonObject.class);
+        JsonArray arr = obj.get("19").getAsJsonObject().get(quest_id + "").getAsJsonArray();
+        QuestConditions res = new QuestConditions();
+        for (JsonElement else_group_elem : arr) { // for each else-group
+            List<int[]> else_group = new ArrayList<>();
+            JsonArray else_group_arr = else_group_elem.getAsJsonArray();
+            for (JsonElement condition_elem : else_group_arr) { // for each cond in else-group
+                JsonArray condition_arr = condition_elem.getAsJsonArray();
+                int cond = condition_arr.get(0).getAsInt();
+                int cond_type = abs(cond);
+                switch (cond_type) {
+                    case cond_reputation_rank:
+                        int faction_id = condition_arr.get(1).getAsInt();
+                        int rank_id = condition_arr.get(2).getAsInt();
+                        else_group.add(new int[] {cond, faction_id, rank_id});
+                        break;
+                    case cond_questrewarderd:
+                    case cond_questtaken:
+                    case cond_quest_none:
+                    case cond_quest_complete:
+                        int cond_quest = condition_arr.get(1).getAsInt();
+                        else_group.add(new int[] {cond, cond_quest});
+                        break;
+                }
+            }
+            if (!else_group.isEmpty())
+                res.conditions.add(else_group);
+        }
+        if (!res.conditions.isEmpty())
+            return res;
+        return null;
+    }
+    
+    static List<Integer> get_prev_quests_in_chain(Document doc) {
+        String name = get_name(doc);
+        for (Element e : doc.getElementsByTag("b")) {
+            if (e.html().equals(name)) {
+                Element elem = e.parent().parent();
+                if (e.parent().tag().getName().equals("span"))
+                    elem = elem.parent();
+                elem = elem.previousElementSibling();
+                if (elem.html().equals("1"))
+                    return Collections.EMPTY_LIST;
+                elem = elem.parent().previousElementSibling();
+                List<Integer> res = new ArrayList<>();
+                do {
+                    res.add(Integer.parseInt(elem.getElementsByTag("a").first().attr("href").substring("?quest=".length())));
+                } while ((elem = elem.previousElementSibling()) != null);
+                return res;
+            } 
+        }
+        return Collections.EMPTY_LIST;
+    }
+    
+    static final String required_quests = "Чтобы получить это задание, вы должны завершить все указанные задания";
+    static final String quests_must_be_active = "Вы можете получить это задание, только когда эти задания доступны";
+    static final String required_one_of_quests = "Чтобы получить это задание, необходимо выполнить одно из следующих заданий";
+    static final String quests_finished_by_this_quest = "Завершив этот квест, вы не сможете выполнять эти квесты";
+    
+    static List<Integer> get_quests(Document doc, String type) {
+        Elements elems = doc.getElementsByAttributeValue("title", type);
+        if (elems.isEmpty())
+            return Collections.EMPTY_LIST;
+        Element e = elems.first();
+        List<Integer> res = new ArrayList<>();
+        e = e.parent().parent().nextElementSibling();
+        for (Element elem : e.getElementsByTag("a")) {
+            res.add(Integer.parseInt(elem.attr("href").substring("?quest=".length())));
+        }
+        return res;
     }
     
     static final Map<Integer, Quest> quests = new HashMap<>();
-    static final Map<Integer, List<Integer>> exclusive_groups = new HashMap<>();
     
-    static class Quest {
+    static class Quest implements Serializable {
+        
+        static final long serialVersionUID = 4324652423894L;
         
         int id;
         String ru_title;
         int min_level, max_level;
         int zone_or_sort;
-        int req_min_rep_faction, req_max_rep_faction;
-        int req_min_rep_value, req_max_rep_value;
         int req_skill_id, req_skill_points;
         int allowable_races, allowable_classes;
-        int exclusive_group;
-        int prev_quest_id;
-        int next_quest_id;
-        int reward_next_quest;
-        List<Integer> dependent_quests = new ArrayList<>();
+        int prev_quest_in_chain;
+        int positive_exclusive_group;
+        List<Integer> req_quests = new ArrayList<>();
+        List<Integer> req_one_of_quests = new ArrayList<>();
+        int quest_must_be_active;
         int flags, special_flags;
-        List<Integer> events_id; // from wow-circle db (https://db.logon3.com)
-        int event_id_for_quest;
+        List<Integer> events_id; 
         
         boolean valid;
      
-        Quest(int id, int min_level, int zone_or_sort, int reward_next_quest, int flags, int allowable_races) {
+        Quest(int id) {
             this.id = id;
-            this.min_level = min_level;
-            this.zone_or_sort = zone_or_sort;
-            this.reward_next_quest = reward_next_quest;
-            this.flags = flags;
-            this.allowable_races = allowable_races;
         }
         
     }
@@ -216,7 +487,7 @@ public class DBCreating {
         return doc;
     }
     
-    static void parse_wow_circle() throws IOException {
+    static void parse_wow_circle() throws IOException, SQLException {
         Map<Integer, QuestStarter> npc_quest_starters = new HashMap<>();
         Map<Integer, QuestStarter> obj_quest_starters = new HashMap<>();
         for (Iterator<Quest> it = quests.values().iterator(); it.hasNext();) {
@@ -230,7 +501,6 @@ public class DBCreating {
                 continue; // wow - circle db contains no information about this quest
             }
             q.ru_title = get_name(doc);
-            q.valid = is_valid_quest(doc);
             q.events_id = get_related_events(doc);
             String msg = "Quest parsed. ID: " + q.id + ", ru_title: " + q.ru_title + ", is_valid: " + q.valid + ", related_events_ids: " + q.events_id + "\n\n";
             System.out.println(msg);
@@ -242,7 +512,7 @@ public class DBCreating {
         quest_starters.addAll(obj_quest_starters.values());
     }
     
-    static void add_quest(int quest_id, Map<Integer, QuestStarter> quest_starters_map, boolean npc, Document doc) throws IOException {
+    static void add_quest(int quest_id, Map<Integer, QuestStarter> quest_starters_map, boolean npc, Document doc) throws IOException, SQLException {
         List<Integer> quest_starters_ids = get_quest_starters(doc, npc);
         for (int qs_id : quest_starters_ids) {
             QuestStarter qs = quest_starters_map.get(qs_id);
@@ -312,7 +582,7 @@ public class DBCreating {
     static final Pattern npc = Pattern.compile("npc=[0-9]+");
     static final Pattern obj = Pattern.compile("object=[0-9]+");
     
-    static List<Integer> get_quest_starters(Document doc, boolean collect_npc) {
+    static List<Integer> get_quest_starters(Document doc, boolean collect_npc) throws SQLException {
         int offset = collect_npc ? "npc=".length() : "object=".length();
         String s = doc.getElementById("infobox-contents0").nextElementSibling().html();
         int start = s.indexOf("Начало: ");
@@ -395,50 +665,37 @@ public class DBCreating {
         pw.append("ALLOWABLE_CLASSES_IDX = 5\n");
         pw.append("FLAGS_IDX = 6\n");
         pw.append("SPECIAL_FLAGS_IDX = 7\n");
-        pw.append("REQ_MIN_REP_FACTION_IDX = 8\n");
-        pw.append("REQ_MAX_REP_FACTION_IDX = 9\n");
-        pw.append("REQ_MIN_REP_VALUE_IDX = 10\n");
-        pw.append("REQ_MAX_REP_VALUE_IDX = 11\n");
-        pw.append("REQ_SKILL_ID_IDX = 12\n");
-        pw.append("REQ_SKILL_POINTS_IDX = 13\n");
-        pw.append("EXCLUSIVE_GROUP_IDX = 14\n");
-        pw.append("PREV_QUEST_IDX = 15\n");
-        pw.append("DEPENDENT_QUESTS_IDX = 16\n");
-        pw.append("Q_RELATED_EVENTS_IDX = 17\n");
-        pw.append("SEASONAL_IDX = 18\n");
-        pw.append("EVENT_FOR_QUEST_IDX = 19\n");
-        pw.append("VALID_IDX = 20\n\n");
+        pw.append("REQ_SKILL_ID_IDX = 8\n");
+        pw.append("REQ_SKILL_POINTS_IDX = 9\n");
+        pw.append("Q_RELATED_EVENTS_IDX = 10\n");
+        pw.append("SEASONAL_IDX = 11\n");
+        pw.append("VALID_IDX = 12\n");
+        pw.append("PREV_QUEST_IN_CHAIN_IDX = 13\n");
+        pw.append("QUEST_MUST_BE_ACTIVE_IDX = 14\n");
+        pw.append("POSITIVE_EXCLUSIVE_GROUP_IDX = 15\n");
+        pw.append("REQUIRED_QUESTS_IDX = 16\n");
+        pw.append("REQUIRED_ONE_OF_QUESTS_IDX = 17\n\n");
         pw.append("Quests = {\n");
         for (Quest q : quests.values()) {
             pw.append("\t[").append(q.id + "] = {");
-            pw.append(q.ru_title == null ? "nil" : "\"" + q.ru_title.replaceAll("\"", "\\\\\"")).append("\", ");
+            pw.append(q.ru_title == null ? "0" : "\"" + q.ru_title.replaceAll("\"", "\\\\\"")).append("\", ");
             pw.append(q.min_level + ", ");
             pw.append(q.max_level + ", ");
             pw.append(q.allowable_races + ", ");
             pw.append(q.allowable_classes + ", ");
             pw.append(q.flags + ", ");
             pw.append(q.special_flags + ", ");
-            pw.append(q.req_min_rep_faction + ", ");
-            pw.append(q.req_max_rep_faction + ", ");
-            pw.append(q.req_min_rep_value + ", ");
-            pw.append(q.req_max_rep_value + ", ");
             pw.append(q.req_skill_id + ", ");
             pw.append(q.req_skill_points + ", ");
-            pw.append(q.exclusive_group + ", ");
-            pw.append(q.prev_quest_id + ", ");
-            pw.append(q.dependent_quests.isEmpty() ? "nil" : q.dependent_quests.toString().replace('[', '{').replace(']', '}')).append(", ");
-            pw.append(q.events_id.isEmpty() ? "nil" : q.events_id.toString().replace('[', '{').replace(']', '}')).append(", ");
+            pw.append(q.events_id.isEmpty() ? "0" : q.events_id.toString().replace('[', '{').replace(']', '}')).append(", ");
             pw.append(is_seasonal(q) ? "1" : "0").append(", ");
-            pw.append(q.event_id_for_quest + "").append(", ");
-            pw.append(q.valid ? "1" : "0");
+            pw.append(q.valid ? "1" : "0").append(", ");
+            pw.append(q.prev_quest_in_chain + "").append(", ");
+            pw.append(q.quest_must_be_active + "").append(", ");
+            pw.append(q.positive_exclusive_group + "").append(", ");
+            pw.append(q.req_quests.isEmpty() ? "0" : q.req_quests.toString().replace('[', '{').replace(']', '}')).append(", ");
+            pw.append(q.req_one_of_quests.isEmpty() ? "0" : q.req_one_of_quests.toString().replace('[', '{').replace(']', '}'));
             pw.append("},\n");
-        }
-        pw.append("}").flush();
-        pw = new PrintWriter(new File("ExclusiveGroups.lua"));
-        pw.append("ExclusiveGroups = {\n");
-        for (Map.Entry<Integer, List<Integer>> e : exclusive_groups.entrySet()) {
-            pw.append("\t[").append(e.getKey().toString()).append("] = ");
-            pw.append(e.getValue().toString().replace('[', '{').replace(']', '}')).append(",\n");
         }
         pw.append("}").flush();
         pw = new PrintWriter(new File("RU_Events.lua"));
@@ -458,7 +715,7 @@ public class DBCreating {
                 pw.append("\t\t[").append(qs.id + "").append("] = {");
                 pw.append("\"").append(qs.ru_name.replaceAll("\"", "\\\\\"")).append("\", ");
                 pw.append(qs.quests_started.toString().replace('[', '{').replace(']', '}')).append(", ");
-                pw.append(qs.events_id.isEmpty() ? "nil" : qs.events_id.toString().replace('[', '{').replace(']', '}'));
+                pw.append(qs.events_id.isEmpty() ? "0" : qs.events_id.toString().replace('[', '{').replace(']', '}'));
                 pw.append("},\n");
             }
         }
@@ -469,7 +726,7 @@ public class DBCreating {
                 pw.append("\t\t[").append(qs.id + "").append("] = {");
                 pw.append("\"").append(qs.ru_name.replaceAll("\"", "\\\\\"")).append("\", ");
                 pw.append(qs.quests_started.toString().replace('[', '{').replace(']', '}')).append(", ");
-                pw.append(qs.events_id.isEmpty() ? "nil" : qs.events_id.toString().replace('[', '{').replace(']', '}'));
+                pw.append(qs.events_id.isEmpty() ? "0" : qs.events_id.toString().replace('[', '{').replace(']', '}'));
                 pw.append("},\n");
             }
         }
@@ -496,6 +753,35 @@ public class DBCreating {
             pw.append("\t},\n");
         }
         pw.append("}").flush();
+        pw = new PrintWriter(new File("QuestConditions.lua"));
+        pw.append("QuestConditions = {\n");
+        for (Map.Entry<Integer, QuestConditions> e : conditions.entrySet()) {
+            pw.append("\t[").append(e.getKey().toString()).append("] = {");
+            for (Iterator<List<int[]>> it1 = e.getValue().conditions.iterator(); it1.hasNext();) {
+                List<int[]> l = it1.next();
+                pw.append("{");
+                for (Iterator<int[]> it2 = l.iterator(); it2.hasNext();) {
+                    int[] i = it2.next();
+                    if (abs(i[0]) == cond_reputation_rank) 
+                        pw.append("{").append(i[0] + "").append(", ").append(i[1] + "").append(", ").append(i[2] + "").append("}");                        
+                    else 
+                        pw.append("{").append(i[0] + "").append(", ").append(i[1] + "").append("}");
+                    if (it2.hasNext())
+                        pw.append(",");
+                }
+                pw.append("}");
+                if (it1.hasNext())
+                    pw.append(",");
+            }
+            pw.append("}, \n");
+        }
+        pw.append("}").flush();
+        pw = new PrintWriter(new File("PositiveExclusiveGroups.lua"));
+        pw.append("PositiveExclusiveGroups = {\n");
+        for (Map.Entry<Integer, List<Integer>> e : positive_eg.entrySet()) {
+            pw.append('[').append(e.getKey().toString()).append("] = ").append(e.getValue().toString().replace('[', '{').replace(']', '}')).append(",\n");
+        }
+        pw.append("}").flush();
     }
     
     static long to_handy_notes_hash(float x, float y) {
@@ -516,6 +802,12 @@ public class DBCreating {
             this.npc = npc;
         }
         
+    }
+    
+    static final Map<Integer, QuestConditions> conditions = new HashMap<>();
+    
+    static class QuestConditions {
+        List<List<int[]>> conditions = new ArrayList<>();
     }
     
 }

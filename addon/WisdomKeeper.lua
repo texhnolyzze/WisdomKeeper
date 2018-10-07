@@ -295,12 +295,12 @@ function WisdomKeeper:CanTakeQuest(QuestID)
 	if (not self:SatisfyQuestRace(Quest)) then return false end
 	if (not self:SatisfyQuestLevel(Quest)) then return false end
 	if (not self:SatisfyQuestSkill(Quest)) then return false end
-	if (not self:SatisfyQuestReputation(Quest)) then return false end
 	if (not self:SatisfyQuestDependentQuests(Quest)) then return false end
 	if (not self:SatisfyQuestDay(Quest, QuestID)) then return false end
 	if (not self:SatisfyQuestWeek(Quest, QuestID)) then return false end
 	if (not self:SatisfyQuestSeasonal(Quest, QuestID)) then return false end
 	if (not self:SatisfyQuestMonth(Quest, QuestID)) then return false end
+	if (not self:SatisfyQuestConditions(QuestID)) then return false end
 	return true
 end
 
@@ -310,9 +310,9 @@ function WisdomKeeper:SatisfyQuestStatus(Quest, QuestID)
 end
 
 function WisdomKeeper:SatisfyQuestExclusiveGroup(Quest, QuestID) 
-	local EG = Quest[EXCLUSIVE_GROUP_IDX]
-	if (EG <= 0) then return true end
-	local EGs = ExclusiveGroups[EG]
+	local EG = Quest[POSITIVE_EXCLUSIVE_GROUP_IDX]
+	if (EG == 0) then return true end
+	local EGs = PositiveExclusiveGroups[EG]
 	for i = 1, #EGs do 
 		local ExcludeID = EGs[i]
 		if (ExcludeID ~= QuestID) then 
@@ -355,52 +355,33 @@ function WisdomKeeper:SatisfyQuestSkill(Quest)
 	return false
 end
 
-function WisdomKeeper:SatisfyQuestReputation(Quest) 
-	local ReqMinRepFaction = Quest[REQ_MIN_REP_FACTION_IDX]
-	if (ReqMinRepFaction ~= 0) then 
-		local _, _, _, _, _, RepValue = GetFactionInfoByID(ReqMinRepFaction)
-		if (RepValue < Quest[REQ_MIN_REP_VALUE_IDX]) then return false end
-	end
-	local ReqMaxRepFaction = Quest[REQ_MAX_REP_FACTION_IDX]
-	if (ReqMaxRepFaction ~= 0) then
-		local _, _, _, _, _, RepValue = GetFactionInfoByID(ReqMaxRepFaction)
-		if (RepValue > Quest[REQ_MAX_REP_VALUE_IDX]) then return false end
-	end
-	return true
-end
-
 function WisdomKeeper:SatisfyQuestDependentQuests(Quest)
-	return self:SatisfyQuestPreviousQuest(Quest) and self:SatisfyQuestDependentPreviousQuests(Quest)
-end
-
-function WisdomKeeper:SatisfyQuestPreviousQuest(Quest)
-	local PrevQuestID = Quest[PREV_QUEST_IDX]
-	if (PrevQuestID == 0) then return true end
-	local AbsPrevQuestID = abs(PrevQuestID)
-	if (PrevQuestID > 0 and DB.RewardedQuests[AbsPrevQuestID] ~= nil) then return true end
-	if (PrevQuestID < 0 and self:GetQuestStatus(Quests[AbsPrevQuestID], AbsPrevQuestID) == QUEST_STATUS_INCOMPLETE) then return true end
-	return false
-end
-
-function WisdomKeeper:SatisfyQuestDependentPreviousQuests(Quest)
-	local DependentQuests = Quest[DEPENDENT_QUESTS_IDX]
-	if (not DependentQuests) then return true end
-	for i = 1, #DependentQuests do
-		DependentQuestID = DependentQuests[i]
-		DependentQuest = Quests[DependentQuestID]
-		if (self:IsQuestRewarded(DependentQuestID)) then
-			if (DependentQuest[EXCLUSIVE_GROUP_IDX] >= 0) then return true end
-			local EG = ExclusiveGroups[DependentQuest[EXCLUSIVE_GROUP_IDX]]
-			for j = 1, #EG do
-				local ExcludeID = EG[j]
-				if (ExcludeID ~= DependentQuestID) then
-					if (not self:IsQuestRewarded(ExcludeID)) then return false end
-				end
-			end
-			return true
+	local PrevQuestInChain = Quest[PREV_QUEST_IN_CHAIN_IDX]
+	if (PrevQuestInChain ~= 0) then 
+		if (DB.RewardedQuests[PrevQuestInChain] == nil) then return false end
+	end
+	local QuestMustBeActive = Quest[QUEST_MUST_BE_ACTIVE_IDX]
+	if (QuestMustBeActive ~= 0) then 
+		if (self:GetQuestStatus(Quests[QuestMustBeActive], QuestMustBeActive) == QUEST_STATUS_INCOMPLETE) then return false end
+	end
+	local RequiredQuests = Quest[REQUIRED_QUESTS_IDX]
+	if (RequiredQuests ~= 0) then
+		for i = 1, #RequiredQuests do
+			if (not self:IsQuestRewarded(RequiredQuests[i])) then return false end
 		end
 	end
-	return false
+	local RequiredOneOfQuests = Quest[REQUIRED_ONE_OF_QUESTS_IDX]
+	if (RequiredOneOfQuests ~= 0) then
+		local Flag = false
+		for i = 1, #RequiredOneOfQuests do
+			if (self:IsQuestRewarded(RequiredOneOfQuests[i])) then
+				Flag = true
+				break
+			end
+		end
+		if (not Flag) then return false end
+	end
+	return true
 end
 
 function WisdomKeeper:SatisfyQuestDay(Quest, QuestID)
@@ -419,10 +400,53 @@ function WisdomKeeper:SatisfyQuestMonth(Quest, QuestID)
 end
 
 function WisdomKeeper:SatisfyQuestSeasonal(Quest, QuestID)
-	if (not IsSeasonal(Quest)) then return true end
-	local EventSeasonalQuests = DB.SeasonalQuests[Quest[EVENT_FOR_QUEST_IDX]]
-	if (not EventSeasonalQuests) then return true end
-	return EventSeasonalQuests[QuestID] == nil
+	return true
+end
+
+local CONDITION_REPUTATION_RANK = 5
+local CONDITION_QUESTREWARDED 	= 8
+local CONDITION_QUESTTAKEN 		= 9
+local CONDITION_QUEST_NONE		= 14
+local CONDITION_QUEST_COMPLETE  = 28
+
+function WisdomKeeper:SatisfyQuestConditions(QuestID)
+	local Conditions = QuestConditions[QuestID]
+	if (not Conditions) then return true end
+	for i = 1, #Conditions do -- for each else-group
+		local Flag = true
+		for j = 1, #Conditions[i] do -- for each condition in else-group
+			local Satisfied = false
+			local ConditionType = Conditions[i][j][1]
+			local AbsConditionType = abs(ConditionType)
+			if (AbsConditionType == CONDITION_REPUTATION_RANK) then 
+				local FactionID = Conditions[i][j][2]
+				local ReputationRank = Conditions[i][j][3]
+				_, _, RepRank = GetFactionInfoByID(FactionID)
+				Satisfied = math.floor(math.pow(2, RepRank - 1)) >= ReputationRank
+			else 
+				local QID = Conditions[i][j][2]
+				local Q = Quests[QID]
+				if (AbsConditionType == CONDITION_QUESTREWARDED) then
+					Satisfied = self:GetQuestRewardStatus(Q, QID)
+				elseif (AbsConditionType == CONDITION_QUESTTAKEN) then
+					Satisfied = self:GetQuestStatus(Q, QID) == QUEST_STATUS_INCOMPLETE
+				elseif (AbsConditionType == CONDITION_QUEST_NONE) then
+					Satisfied = self:GetQuestStatus(Q, QID) == QUEST_STATUS_NONE
+				else 
+					Satisfied = self:GetQuestStatus(Q, QID) == QUEST_STATUS_COMPLETE and not self:GetQuestRewardStatus(Q, QID)
+				end
+			end
+			if (ConditionType < 0) then 
+				Satisfied = not Satisfied 
+			end
+			if (not Satisfied) then 
+				Flag = false
+				break
+			end
+		end
+		if (Flag) then return true end
+	end
+	return false
 end
 
 ------- HandyNotes plugin methods -----------
@@ -430,12 +454,12 @@ end
 local IconPath = "Interface\\AddOns\\WisdomKeeper\\icons\\QuestIcon"
 
 function WisdomKeeper:GetNodes(MapFile, MiniMap, DungeonLevel)
-	local CurrMapAreaID = GetCurrentMapAreaID()
-	if (CurrMapAreaID == 0 or CurrMapAreaID == 14 or CurrMapAreaID == 15 or CurrMapAreaID == 467 or CurrMapAreaID == 486) then
-		return nil -- continent showing
-	end
 	local Zone = Zones[MapFileToZoneIndex[MapFile]]
-	if (not Zone) then return nil end
+	if (not Zone) then return 
+		function() -- empty function
+			return nil
+		end
+	end
 	local Hash, QuestStarters
 	return function()
 		Hash, QuestStarters = next(Zone, Hash)
@@ -489,7 +513,7 @@ function WisdomKeeper:OnEnter(MapFile, Hash)
 		local StringToShow = QuestStarter[QS_RU_NAME_IDX] 
 		StringToShow = StringToShow .. ", (" .. QuestStarterTypeToString[QuestStarterType] .. ", ID: " .. QuestStarterID
 		local RelEvents = QuestStarter[QS_RELATED_EVENTS_IDX]
-		if (RelEvents ~= nil) then StringToShow = RelEventsToString(StringToShow, RelEvents) end
+		if (RelEvents ~= 0) then StringToShow = RelEventsToString(StringToShow, RelEvents) end
 		StringToShow = StringToShow .. ")"
 		Tooltip:AddLine(StringToShow, 1, 1, 0)
 		Tooltip:AddLine("Доступные у нее/него квесты:", 1, 1, 0)
@@ -500,7 +524,7 @@ function WisdomKeeper:OnEnter(MapFile, Hash)
 				local QuestName = Quests[QuestID][Q_RU_NAME_IDX]
 				StringToShow = QuestName .. ", ID: " .. QuestID
 				RelEvents = Quests[QuestID][Q_RELATED_EVENTS_IDX]
-				if (RelEvents ~= nil) then StringToShow = RelEventsToString(StringToShow, RelEvents) end
+				if (RelEvents ~= 0) then StringToShow = RelEventsToString(StringToShow, RelEvents) end
 				Tooltip:AddLine(StringToShow, 1, 1, 0)
 			end
 		end

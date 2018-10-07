@@ -14,11 +14,12 @@ libs\AceEvent-3.0\AceEvent-3.0.lua
 libs\AceDB-3.0\AceDB-3.0.lua
 libs\AceHook-3.0\AceHook-3.0.lua
 
-db\ExclusiveGroups.lua
 db\MapFileToZoneIndex.lua
 db\Quests.lua
 db\QuestStarters.lua
 db\RU_Events.lua
 db\Zones.lua
+db\QuestConditions.lua
+db\PositiveExclusiveGroups.lua
 
 WisdomKeeper.lua

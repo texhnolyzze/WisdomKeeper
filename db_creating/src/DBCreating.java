@@ -11,8 +11,6 @@ import java.io.Serializable;
 import java.io.StringReader;
 import static java.lang.Math.abs;
 import static java.lang.Math.floor;
-import java.net.InetSocketAddress;
-import java.net.Proxy;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -60,31 +58,31 @@ public class DBCreating {
     public static void main(String[] args) throws SQLException, IOException {
         try {
             collect_all_quests();
-            collect_quests_require_edits();
-//            apply_edits();
-//            build_positive_exclusive_groups();
-//            collect_quest_conditions();
-//            parse_wow_circle();
-//            // 3, 4, 5 are id's of same event (Darkmoon Faire)
-//            ru_event_name.remove(4);
-//            ru_event_name.remove(5);
-//            List<Integer> l = Arrays.asList(4, 5);
-//            for (QuestStarter qs : quest_starters) {
-//                if (qs.events_id.contains(4) || qs.events_id.contains(5)) {
-//                    qs.events_id.removeAll(l);
-//                    if (!qs.events_id.contains(3))
-//                        qs.events_id.add(3);
-//                }
-//            }
-//            for (Quest q : quests.values()) {
-//                if (q.events_id.contains(4) || q.events_id.contains(5)) {
-//                    q.events_id.removeAll(l);
-//                    if (!q.events_id.contains(3))
-//                        q.events_id.add(3);
-//                }
-//            }
-//            process_quest_starters();
-//            all_to_lua_table();
+//            collect_quests_require_edits();
+            apply_edits();
+            build_positive_exclusive_groups();
+            collect_quest_conditions();
+            parse_isengard_db();
+            // 3, 4, 5 are id's of same event (Darkmoon Faire)
+            ru_event_name.remove(4);
+            ru_event_name.remove(5);
+            List<Integer> l = Arrays.asList(4, 5);
+            for (QuestStarter qs : quest_starters) {
+                if (qs.events_id.contains(4) || qs.events_id.contains(5)) {
+                    qs.events_id.removeAll(l);
+                    if (!qs.events_id.contains(3))
+                        qs.events_id.add(3);
+                }
+            }
+            for (Quest q : quests.values()) {
+                if (q.events_id.contains(4) || q.events_id.contains(5)) {
+                    q.events_id.removeAll(l);
+                    if (!q.events_id.contains(3))
+                        q.events_id.add(3);
+                }
+            }
+            process_quest_starters();
+            all_to_lua_table();
         } catch (Exception e) {
             logger.flush();
             logger.close();
@@ -97,14 +95,18 @@ public class DBCreating {
         ResultSet rs = s.executeQuery("SELECT id FROM quest_template;");
         while (rs.next()) {
             int id = rs.getInt(1);
+            if (id == 9679) // 504 error, don't know why
+                continue;
             Document doc = get_document(quest_type, id);
             List<Integer> prev = get_prev_quests_in_chain(doc);
             List<Integer> req = get_quests(doc, required_quests);
             List<Integer> req_one_of = get_quests(doc, required_one_of_quests);
             List<Integer> active = get_quests(doc, quests_must_be_active);
             Quest q = new Quest(id);
+            int i = collect_base_quest_props(q, id, doc);
+            if (i == -1) // no such quest
+                continue;
             quests.put(id, q);
-            collect_base_quest_props(q, id, doc);
             q.prev_quest_in_chain = prev.isEmpty() ? 0 : prev.get(0);
             q.quest_must_be_active = active.isEmpty() ? 0 : active.get(0);
             q.req_quests = req;
@@ -112,12 +114,14 @@ public class DBCreating {
         }
     }
     
-    static void collect_base_quest_props(Quest q, int id, Document doc) throws IOException, SQLException {
+    static int collect_base_quest_props(Quest q, int id, Document doc) throws IOException, SQLException {
         if (doc == null)
             doc = get_document(quest_type, id);
         Statement s = jdbc_connection.createStatement(); 
         ResultSet rs = s.executeQuery("SELECT Flags FROM quest_template WHERE ID = " + id + ";");
         q.allowable_races = get_allowable_races(doc);
+        if (q.allowable_races == -1) // no such quest
+            return -1;
         q.allowable_classes = get_allowable_classes(doc);
         int[] min_max = get_min_max_lvl(doc);
         q.min_level = min_max[0];
@@ -132,6 +136,7 @@ public class DBCreating {
             q.flags |= 1024;
         q.special_flags = get_special_flags(doc);
         q.valid = is_valid_quest(doc);
+        return 1;
     }
     
     
@@ -142,15 +147,26 @@ public class DBCreating {
                 quests_require_edits.add(q.id);
         }
         PrintWriter pw = new PrintWriter(new File("quests_require_edits.txt"));
+        pw.append("ID|PREV_QUEST_IN_CHAIN|QUEST_MUST_BE_ACTIVE|[REQUIRED_QUESTS]|[REQUIRED_ONE_OF_QUESTS]|[QUEST_STARTER_TYPE_ID]\n");
         quests_require_edits.stream().sorted().forEach(quest -> pw.append(quest + "").append("\n"));
         pw.flush();
         pw.close();
     }
     
-    static boolean require_edits(Quest q) {
+    static boolean require_edits(Quest q) throws IOException {
         if (!q.req_one_of_quests.isEmpty())
             return true;
         if (q.prev_quest_in_chain != 0 && !q.req_quests.isEmpty())
+            return true;
+        Document doc = get_document(quest_type, q.id);
+        String s = doc.getElementById("infobox-contents0").nextElementSibling().html();
+        int start = s.indexOf("Начало: ");
+        int end = s.indexOf("Конец: ");
+        if (start == -1 && end != -1)
+            return true;
+        if (!q.valid && start != -1)
+            return true;
+        if (q.valid && start == -1)
             return true;
         boolean b = q.valid && ((q.prev_quest_in_chain != 0 && !quests.get(q.prev_quest_in_chain).valid) ||
                     q.req_quests.stream().anyMatch(id -> !quests.get(id).valid) ||
@@ -164,15 +180,21 @@ public class DBCreating {
     static void apply_edits() throws IOException, SQLException {
         Scanner s = new Scanner(edits);
         s.nextLine();
+        String line;
         while (s.hasNextLine()) {
-            String line = s.nextLine();
+            System.out.println(1);
+            line = s.nextLine();
             String[] split = line.split("\\|");
-            if (split.length != 5)
+            if (split.length < 6) {
+                if (split.length != 1)
+                    throw new RuntimeException(split[0]);
                 continue;
+            }
             int id = Integer.parseInt(split[0]);
             Quest q = quests.get(id);
             q.prev_quest_in_chain = Integer.parseInt(split[1]);
-            String[] req_quests = split[2].split(" ");
+            q.quest_must_be_active = Integer.parseInt(split[2]);
+            String[] req_quests = split[3].split(" ");
             if (Integer.parseInt(req_quests[0]) == 0)
                 q.req_quests = Collections.EMPTY_LIST;
             else {
@@ -180,7 +202,7 @@ public class DBCreating {
                 for (String str : req_quests)
                     q.req_quests.add(Integer.parseInt(str));
             }
-            String[] req_one_of_quests = split[3].split(" ");
+            String[] req_one_of_quests = split[4].split(" ");
             if (Integer.parseInt(req_one_of_quests[0]) == 0)
                 q.req_one_of_quests = Collections.EMPTY_LIST;
             else {
@@ -188,7 +210,20 @@ public class DBCreating {
                 for (String str : req_one_of_quests)
                     q.req_one_of_quests.add(Integer.parseInt(str));
             }
-            q.quest_must_be_active = Integer.parseInt(split[4]);
+            String[] qs_type_id = split[5].split(" ");
+            if (qs_type_id.length == 2) {
+                boolean npc = qs_type_id[0].equals("1");
+                int qs_id = Integer.parseInt(qs_type_id[1]);
+                for (QuestStarter qs : quest_starters) {
+                    if (qs.id == qs_id && qs.npc == npc) {
+                        qs.quests_started.add(id);
+                        return;
+                    }
+                }
+                System.out.println("ERROR");
+            }
+            if (split.length == 7)  // valid label
+                q.valid = true;
         }
     }
     
@@ -196,10 +231,8 @@ public class DBCreating {
     
     static void build_positive_exclusive_groups() throws SQLException, IOException {
         Set<Integer> eg_found = new HashSet<>();
-        Statement s = jdbc_connection.createStatement(); 
-        ResultSet rs = s.executeQuery("SELECT id FROM quest_template;");
-        while (rs.next()) {
-            int id = rs.getInt(1);
+        for (Quest q : quests.values()) {
+            int id = q.id;
             if (eg_found.contains(id))
                 continue;
             List<Integer> l = get_quests(get_document(quest_type, id), quests_finished_by_this_quest);
@@ -214,20 +247,20 @@ public class DBCreating {
     }
 
     static void collect_quest_conditions() throws SQLException, IOException {
-        Statement s = jdbc_connection.createStatement(); 
-        ResultSet rs = s.executeQuery("SELECT id FROM quest_template;");
-        while (rs.next()) {
-            int id = rs.getInt(1);
-            QuestConditions qc = get_conditions(id, get_document(quest_type, id));
+        for (Quest q : quests.values()) {
+            QuestConditions qc = get_conditions(q.id, get_document(quest_type, q.id));
             if (qc != null)
-                conditions.put(id, qc);
+                conditions.put(q.id, qc);
         }
     }
     
     static final Pattern race_pattern = Pattern.compile("race=[0-9]+");
     
     static int get_allowable_races(Document doc) {
-        String s = doc.getElementById("infobox-contents0").nextElementSibling().html();
+        Element e = doc.getElementById("infobox-contents0");
+        if (e == null)
+            return -1;
+        String s = e.nextElementSibling().html();
         if (s.contains("Расы: Обе")) 
             return 0;
         else if (s.contains("Расы: Орда")) 
@@ -273,19 +306,14 @@ public class DBCreating {
         }
     }
     
-    static final Pattern zone_or_sort = Pattern.compile("\"category\":-?[0-9]+");
-    
     static int get_zone_or_sort(int quest_id, Document doc) throws SQLException {
-        String s = doc.getElementById("lv-generic").nextElementSibling().html();
-        Matcher m = zone_or_sort.matcher(s);
-        if (m.find())
-            return Integer.parseInt(s.substring(m.start() + "\"category\":".length(), m.end()));
-        else {
-            Statement statement = jdbc_connection.createStatement(); 
-            ResultSet rs = statement.executeQuery("SELECT QuestSortID FROM quest_template WHERE ID = " + quest_id + ";");
-            rs.next();
-            return rs.getInt(1);
-        }
+        String s = doc.getElementById("main-contents").children().first().html();
+        int start = s.indexOf("\"breadcrumb\":[") + "\"breadcrumb\":[".length();
+        s = s.substring(start, s.indexOf(']', start));
+        String[] split = s.split(",");
+        if (split.length == 3) 
+            return -2;
+        return Integer.parseInt(s.split(",")[3]); 
     }
     
     static int get_flags(int quest_id, Document doc) throws SQLException {
@@ -345,7 +373,10 @@ public class DBCreating {
         JsonReader r = new JsonReader(new StringReader(s));
         r.setLenient(true);
         JsonObject obj = gson.fromJson(r, JsonObject.class);
-        JsonArray arr = obj.get("19").getAsJsonObject().get(quest_id + "").getAsJsonArray();
+        JsonElement el = obj.get("19");
+        if (el == null)
+            return null;
+        JsonArray arr = el.getAsJsonObject().get(quest_id + "").getAsJsonArray();
         QuestConditions res = new QuestConditions();
         for (JsonElement else_group_elem : arr) { // for each else-group
             List<int[]> else_group = new ArrayList<>();
@@ -446,7 +477,7 @@ public class DBCreating {
 	
     static boolean is_seasonal(Quest q) {
         int n = q.zone_or_sort;
-        return (n == -22 || n == -284 || n == -366 || n == -369 || n == -370 || n == -376 || n == -374) && ((q.special_flags & 1) == 0);
+        return (n == -22 || n == -284 || n == -366 || n == -369 || n == -370 || n == -376 || n == -374 || n == -1002 || n == -1003 || n == -1001 || n == -1005) && ((q.special_flags & 1) == 0);
     }
     
     static final Map<Integer, String> ru_event_name = new HashMap<>();
@@ -465,19 +496,25 @@ public class DBCreating {
     static final int npc_type = 1;
     static final int obj_type = 2;
     static final int event_type = 3;
-    static final Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress("46.163.186.9", 3129));
-    
+
+    static final String[] types = {"quest", "npc", "object", "event"};
+
     static Document get_document(int type, int id) throws IOException {
-        String[] types = {"quest", "npc", "object", "event"};
+        Document doc = null;
         String path = "cache/" + types[type];
         File f = new File(path);
-        Document doc;
         if (!f.exists())
             f.mkdirs();
         f = new File(path + "/" + id + ".html");
         if (!f.exists()) {
-            String url = "http://db.logon3.com/?" + types[type] + "=" + id;
-            doc = Jsoup.connect(url).timeout(1000000).header("Accept-Language", "ru-RU").userAgent("Mozilla/5.0 (Windows NT 6.1; rv:60.0) Gecko/20100101 Firefox/60.0").get();
+            boolean success = false;
+            String url = "http://db.ezwow.org/?" + types[type] + "=" + id;
+            while (!success) {
+                try {
+                    doc = Jsoup.connect(url).timeout(1000 * 2).header("Accept-Language", "ru-RU").userAgent("Mozilla/5.0 (Windows NT 6.1; rv:60.0) Gecko/20100101 Firefox/60.0").get();
+                    success = true;
+                } catch (IOException ex) {}
+            }
             try (PrintWriter out = new PrintWriter(f)) {
                 out.print(doc.toString());
                 out.flush();
@@ -487,19 +524,12 @@ public class DBCreating {
         return doc;
     }
     
-    static void parse_wow_circle() throws IOException, SQLException {
+    static void parse_isengard_db() throws IOException, SQLException {
         Map<Integer, QuestStarter> npc_quest_starters = new HashMap<>();
         Map<Integer, QuestStarter> obj_quest_starters = new HashMap<>();
         for (Iterator<Quest> it = quests.values().iterator(); it.hasNext();) {
             Quest q = it.next();
             Document doc = get_document(quest_type, q.id);
-            if (doc.getElementById("inputbox-error") != null) {
-                String msg = "ERROR: quest not exist in wow-circle db. Quest ID: " + q.id + "\n\n";
-                System.out.println(msg);
-                logger.append(msg);
-                q.events_id = Collections.EMPTY_LIST;
-                continue; // wow - circle db contains no information about this quest
-            }
             q.ru_title = get_name(doc);
             q.events_id = get_related_events(doc);
             String msg = "Quest parsed. ID: " + q.id + ", ru_title: " + q.ru_title + ", is_valid: " + q.valid + ", related_events_ids: " + q.events_id + "\n\n";
@@ -554,8 +584,7 @@ public class DBCreating {
     }
     
     static boolean is_valid_quest(Document doc) {
-        String s = doc.getElementById("infobox-contents0").nextElementSibling().html();
-        return !s.contains("disabledHint") && !s.contains("Недоступно игрокам");
+        return !doc.toString().contains("пометили это задание как устаревшее — его нельзя получить или выполнить.");
     }
 
     static final Pattern event = Pattern.compile("event=[0-9]+");

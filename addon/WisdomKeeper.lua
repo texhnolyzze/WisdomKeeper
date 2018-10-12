@@ -362,7 +362,7 @@ function WisdomKeeper:SatisfyQuestDependentQuests(Quest)
 	end
 	local QuestMustBeActive = Quest[QUEST_MUST_BE_ACTIVE_IDX]
 	if (QuestMustBeActive ~= 0) then 
-		if (self:GetQuestStatus(Quests[QuestMustBeActive], QuestMustBeActive) == QUEST_STATUS_INCOMPLETE) then return false end
+		if (self:GetQuestStatus(Quests[QuestMustBeActive], QuestMustBeActive) ~= QUEST_STATUS_INCOMPLETE) then return false end
 	end
 	local RequiredQuests = Quest[REQUIRED_QUESTS_IDX]
 	if (RequiredQuests ~= 0) then

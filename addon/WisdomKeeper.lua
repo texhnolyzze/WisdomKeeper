@@ -1,5 +1,9 @@
-﻿local WisdomKeeper = LibStub("AceAddon-3.0"):NewAddon("WisdomKeeper", "AceEvent-3.0", "AceHook-3.0")
+﻿WisdomKeeper = LibStub("AceAddon-3.0"):NewAddon("WisdomKeeper", "AceEvent-3.0", "AceHook-3.0")
 local DB = nil
+
+function WisdomKeeper:SetEvent(ID) 
+	self.db.realm.CurrentEventID = ID
+end
 
 local ClassMask = {
 	["WARRIOR"] 	= 1,
@@ -25,6 +29,33 @@ local RaceMask = {
 	["Troll"] 		= 128,
 	["BloodElf"] 	= 512,
 	["Draenei"] 	= 1024
+}
+
+local COMMON_MAN = {
+	[19148] = true,
+	[19169] = true,
+	[19172] = true,
+	[19176] = true,
+	[18927] = true,
+	[19175] = true,
+	[19173] = true,
+	[19178] = true,
+	[19177] = true,
+	[19171] = true,
+	[20102] = true
+}
+
+local COMMON_MAN_RELATED_EVENTS = {
+	[1] = true,
+	[2] = true,
+	[7] = true,
+	[9] = true,
+	[12] = true,
+	[17] = true,
+	[26] = true,
+	[32] = true,
+	[40] = true,
+	[41] = true
 }
 
 ----------------Some quest utils-----------------
@@ -76,10 +107,31 @@ local function UpdateTimeRewarded(Quest, QuestID)
 	end
 end
 
+local function GetQuestNotInLogTitle()
+	local NumEntries, _ = GetNumQuestLogEntries()
+	for QuestID in pairs(DB.ActiveQuests) do
+		local Flag = false
+		for i = 1, NumEntries do
+			local _, _, _, _, IsHeader, _, _, _, QID = GetQuestLogTitle(i)
+			if (not IsHeader) then
+				if (QID == QuestID) then
+					Flag = true 
+					break
+				end
+			end
+		end
+		if (not Flag) then return QuestID end
+	end
+	return -1
+end
+
 ---------------------------------------------------
 
 function WisdomKeeper:OnInitialize()
 	local defaults = {
+		["realm"] = {
+			["CurrentEventID"] = 0
+		}, 
 		["char"] = {
 			["WasInitialized"] = false,
 			["ActiveQuests"] = {},
@@ -87,8 +139,7 @@ function WisdomKeeper:OnInitialize()
 			["DailyQuests"] = {},
 			["WeeklyQuests"] = {},
 			["MonthlyQuests"] = {},
-			["SeasonalQuests"] = {},
-			["QuestNameToQuestID"] = {}
+			["SeasonalQuests"] = {}
 		}
 	}
 	self.db = LibStub("AceDB-3.0"):New("WisdomKeeperDBPC", defaults)
@@ -143,11 +194,10 @@ end
 function WisdomKeeper:StoreActiveQuests()
 	local NumEntries, _ = GetNumQuestLogEntries()
 	for i = 1, NumEntries do
-		local QuestName, _, _, _, IsHeader, _, _, _, QuestID = GetQuestLogTitle(i)
+		local _, _, _, _, IsHeader, _, _, _, QuestID = GetQuestLogTitle(i)
 		if (not IsHeader) then
 			if (Quests[QuestID] ~= nil) then
 				DB.ActiveQuests[QuestID] = true
-				DB.QuestNameToQuestID[QuestName] = QuestID
 			end
 		end
 	end
@@ -159,7 +209,6 @@ function WisdomKeeper:RegisterAllEvents()
 	HandyNotes:RegisterPluginDB("WisdomKeeper", self, nil)
 	self:RegisterEvent("PLAYER_LEVEL_UP")
 	self:RegisterEvent("QUEST_ACCEPTED")
-	self:RegisterEvent("QUEST_COMPLETE")
 	self:SecureHook("GetQuestReward", self.QUEST_TURNED_IN)
 	AbandonQuestSourceFunc = StaticPopupDialogs["ABANDON_QUEST"].OnAccept
 	StaticPopupDialogs["ABANDON_QUEST"].OnAccept = function()
@@ -171,6 +220,7 @@ function WisdomKeeper:RegisterAllEvents()
 		self:QUEST_ABANDONED()
 		AbandonQuestWithItemsSourceFunc()
 	end
+	self:RegisterEvent("QUEST_LOG_UPDATE")
 end
 
 function WisdomKeeper:PLAYER_LEVEL_UP(EventName, ...)
@@ -179,45 +229,8 @@ function WisdomKeeper:PLAYER_LEVEL_UP(EventName, ...)
 	HandyNotes:UpdateMinimapPlugin("WisdomKeeper")
 end
 
-function WisdomKeeper:QUEST_ABANDONED() 
-	local QuestName = GetAbandonQuestName()
-	local QuestID = DB.QuestNameToQuestID[QuestName]
-	if (QuestID ~= nil) then
-		DB.ActiveQuests[QuestID] = nil
-		DB.QuestNameToQuestID[QuestName] = nil
-		HandyNotes:UpdateMinimapPlugin("WisdomKeeper")
-	end
-end
-
-local QuestTitleTemp = ""
-
-function WisdomKeeper:QUEST_COMPLETE() 
-	QuestTitleTemp = GetTitleText()
-end
-
-function WisdomKeeper:QUEST_TURNED_IN(...)
-	QuestID = DB.QuestNameToQuestID[QuestTitleTemp]
-	local Quest = Quests[QuestID]
-	if (Quest ~= nil) then 
-		DB.ActiveQuests[QuestID] = nil
-		local QuestName
-		for QName, QID in pairs(DB.QuestNameToQuestID) do
-			if (QID == QuestID) then
-				QuestName = QName
-				break
-			end
-		end
-		DB.QuestNameToQuestID[QuestName] = nil
-		if (CanIncreaseRewardedQuestCounters(Quest)) then
-			DB.RewardedQuests[QuestID] = true
-		end
-		UpdateTimeRewarded(Quest, QuestID)
-		HandyNotes:UpdateMinimapPlugin("WisdomKeeper")
-	end
-end
-
 function WisdomKeeper:QUEST_ACCEPTED(EventName, QuestLogIndex)
-	local QuestName, _, _, _, _, _, _, _, QuestID = GetQuestLogTitle(QuestLogIndex)
+	local _, _, _, _, _, _, _, _, QuestID = GetQuestLogTitle(QuestLogIndex)
 	local Quest = Quests[QuestID]
 	if (Quest ~= nil) then
 		if (IsTracking(Quest)) then 
@@ -227,9 +240,45 @@ function WisdomKeeper:QUEST_ACCEPTED(EventName, QuestLogIndex)
 			UpdateTimeRewarded(Quest, QuestID)
 		else 
 			DB.ActiveQuests[QuestID] = true
-			DB.QuestNameToQuestID[QuestName] = QuestID
 		end
 		HandyNotes:UpdateMinimapPlugin("WisdomKeeper")
+	end
+end
+
+local QUEST_NONE 	  = 0
+local QUEST_ABANDONED = 1
+local QUEST_TURNED_IN = 2
+
+local State = QUEST_NONE
+
+function WisdomKeeper:QUEST_ABANDONED()
+	State = QUEST_ABANDONED
+end
+
+function WisdomKeeper:QUEST_TURNED_IN(...)
+	State = QUEST_TURNED_IN
+end
+
+function WisdomKeeper:QUEST_LOG_UPDATE() 
+	if (State == QUEST_ABANDONED) then 
+		local AbandonedQuestID = GetQuestNotInLogTitle()
+		if (AbandonedQuestID == -1) then return end
+		DB.ActiveQuests[AbandonedQuestID] = nil
+		HandyNotes:UpdateMinimapPlugin("WisdomKeeper")
+		State = QUEST_NONE
+	elseif (State == QUEST_TURNED_IN) then 
+		local RewardedQuestID = GetQuestNotInLogTitle()
+		if (RewardedQuestID == -1) then return end
+		local RewardedQuest = Quests[RewardedQuestID]
+		if (RewardedQuest ~= nil) then 
+			DB.ActiveQuests[RewardedQuestID] = nil
+			if (CanIncreaseRewardedQuestCounters(RewardedQuest)) then
+				DB.RewardedQuests[RewardedQuestID] = true
+			end
+			UpdateTimeRewarded(RewardedQuest, RewardedQuestID)
+			HandyNotes:UpdateMinimapPlugin("WisdomKeeper")
+		end
+		State = QUEST_NONE
 	end
 end
 
@@ -289,6 +338,7 @@ end
 function WisdomKeeper:CanTakeQuest(QuestID)
 	local Quest = Quests[QuestID]
 	if (Quest[VALID_IDX] == 0) then return false end
+	if (Quest[Q_RELATED_EVENT_IDX] ~= 0 and self.db.realm.CurrentEventID ~= Quest[Q_RELATED_EVENT_IDX]) then return false end
 	if (not self:SatisfyQuestStatus(Quest, QuestID)) then return false end
 	if (not self:SatisfyQuestExclusiveGroup(Quest, QuestID)) then return false end
 	if (not self:SatisfyQuestClass(Quest)) then return false end
@@ -467,11 +517,14 @@ function WisdomKeeper:GetNodes(MapFile, MiniMap, DungeonLevel)
 			for i = 1, #QuestStarters, 2 do
 				local QuestStarterType = QuestStarters[i]
 				local QuestStarterID = QuestStarters[i + 1]
-				local QuestsStarted = GlobalQuestStarters[QuestStarterType][QuestStarterID][QUESTS_STARTED_IDX]
-				for j = 1, #QuestsStarted do
-					local QuestID = QuestsStarted[j]
-					if (self:CanTakeQuest(QuestID)) then
-						return Hash, nil, IconPath, 1.3, 1.0 
+				local QuestStarter = GlobalQuestStarters[QuestStarterType][QuestStarterID]
+				if (QuestStarter[QS_RELATED_EVENT_IDX] == 0 or self.db.realm.CurrentEventID == QuestStarter[QS_RELATED_EVENT_IDX] or (COMMON_MAN[QuestStarterID] and COMMON_MAN_RELATED_EVENTS[self.db.realm.CurrentEventID])) then 
+					local QuestsStarted = QuestStarter[QUESTS_STARTED_IDX]
+					for j = 1, #QuestsStarted do
+						local QuestID = QuestsStarted[j]
+						if (self:CanTakeQuest(QuestID)) then
+							return Hash, nil, IconPath, 1.3, 1.0 
+						end
 					end
 				end
 			end
@@ -485,15 +538,6 @@ local QuestStarterTypeToString = {
 	[1] = "НПС",
 	[2] = "Объект"
 }
-
-local function RelEventsToString(Dest, RelEvents) 
-	Dest = Dest .. ", Связанные события: ("
-	for j = 1, #RelEvents - 1 do
-		Dest = Dest .. RU_Event[RelEvents[j]] .. ", "
-	end
-	Dest = Dest .. RU_Event[RelEvents[#RelEvents]] .. ")"
-	return Dest
-end
 
 function WisdomKeeper:OnEnter(MapFile, Hash)
 	self:SetBackdropColor(0, 0, 0, 1)
@@ -510,21 +554,28 @@ function WisdomKeeper:OnEnter(MapFile, Hash)
 		local QuestStarterType = QuestStarters[i]
 		local QuestStarterID = QuestStarters[i + 1]
 		local QuestStarter = GlobalQuestStarters[QuestStarterType][QuestStarterID]
-		local StringToShow = QuestStarter[QS_RU_NAME_IDX] 
-		StringToShow = StringToShow .. ", (" .. QuestStarterTypeToString[QuestStarterType] .. ", ID: " .. QuestStarterID
-		local RelEvents = QuestStarter[QS_RELATED_EVENTS_IDX]
-		if (RelEvents ~= 0) then StringToShow = RelEventsToString(StringToShow, RelEvents) end
-		StringToShow = StringToShow .. ")"
-		Tooltip:AddLine(StringToShow, 1, 1, 0)
-		Tooltip:AddLine("Доступные у нее/него квесты:", 1, 1, 0)
 		local QuestsStarted = QuestStarter[QUESTS_STARTED_IDX]
+		local AvailableQuests = {}
 		for j = 1, #QuestsStarted do
 			local QuestID = QuestsStarted[j]
 			if (WisdomKeeper:CanTakeQuest(QuestID)) then
+				table.insert(AvailableQuests, QuestID)
+			end
+		end
+		if (#AvailableQuests > 0) then 
+			local StringToShow = QuestStarter[QS_RU_NAME_IDX] 
+			StringToShow = StringToShow .. ", (" .. QuestStarterTypeToString[QuestStarterType] .. ", ID: " .. QuestStarterID
+			if (QuestStarter[QS_RELATED_EVENT_IDX] ~= 0) then StringToShow = StringToShow .. ", Связан с текущим событием" end
+			StringToShow = StringToShow .. ")"
+			Tooltip:AddLine(StringToShow, 1, 1, 0)
+			Tooltip:AddLine("Доступные у нее/него квесты:", 1, 1, 0)
+			for j = 1, #AvailableQuests do
+				local QuestID = AvailableQuests[j]
 				local QuestName = Quests[QuestID][Q_RU_NAME_IDX]
 				StringToShow = QuestName .. ", ID: " .. QuestID
-				RelEvents = Quests[QuestID][Q_RELATED_EVENTS_IDX]
-				if (RelEvents ~= 0) then StringToShow = RelEventsToString(StringToShow, RelEvents) end
+				if (Quests[QuestID][Q_RELATED_EVENT_IDX] ~= 0) then 
+					StringToShow = StringToShow .. ", Связан с текущим событием"
+				end
 				Tooltip:AddLine(StringToShow, 1, 1, 0)
 			end
 		end

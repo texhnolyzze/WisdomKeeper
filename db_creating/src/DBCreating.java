@@ -123,6 +123,8 @@ public class DBCreating {
         if (q.allowable_races == -1) // no such quest
             return -1;
         q.allowable_classes = get_allowable_classes(doc);
+        q.ru_title = get_name(doc);
+        q.events_id = get_related_events(doc);
         int[] min_max = get_min_max_lvl(doc);
         q.min_level = min_max[0];
         q.max_level = min_max[1];
@@ -182,7 +184,6 @@ public class DBCreating {
         s.nextLine();
         String line;
         while (s.hasNextLine()) {
-            System.out.println(1);
             line = s.nextLine();
             String[] split = line.split("\\|");
             if (split.length < 6) {
@@ -530,11 +531,6 @@ public class DBCreating {
         for (Iterator<Quest> it = quests.values().iterator(); it.hasNext();) {
             Quest q = it.next();
             Document doc = get_document(quest_type, q.id);
-            q.ru_title = get_name(doc);
-            q.events_id = get_related_events(doc);
-            String msg = "Quest parsed. ID: " + q.id + ", ru_title: " + q.ru_title + ", is_valid: " + q.valid + ", related_events_ids: " + q.events_id + "\n\n";
-            System.out.println(msg);
-            logger.append(msg);
             add_quest(q.id, npc_quest_starters, true, doc);
             add_quest(q.id, obj_quest_starters, false, doc);
         }
@@ -696,7 +692,7 @@ public class DBCreating {
         pw.append("SPECIAL_FLAGS_IDX = 7\n");
         pw.append("REQ_SKILL_ID_IDX = 8\n");
         pw.append("REQ_SKILL_POINTS_IDX = 9\n");
-        pw.append("Q_RELATED_EVENTS_IDX = 10\n");
+        pw.append("Q_RELATED_EVENT_IDX = 10\n");
         pw.append("SEASONAL_IDX = 11\n");
         pw.append("VALID_IDX = 12\n");
         pw.append("PREV_QUEST_IN_CHAIN_IDX = 13\n");
@@ -716,7 +712,7 @@ public class DBCreating {
             pw.append(q.special_flags + ", ");
             pw.append(q.req_skill_id + ", ");
             pw.append(q.req_skill_points + ", ");
-            pw.append(q.events_id.isEmpty() ? "0" : q.events_id.toString().replace('[', '{').replace(']', '}')).append(", ");
+            pw.append(q.events_id.isEmpty() ? "0" : q.events_id.get(0).toString()).append(", ");
             pw.append(is_seasonal(q) ? "1" : "0").append(", ");
             pw.append(q.valid ? "1" : "0").append(", ");
             pw.append(q.prev_quest_in_chain + "").append(", ");
@@ -734,9 +730,11 @@ public class DBCreating {
         }
         pw.append("}").flush();
         pw = new PrintWriter(new File("QuestStarters.lua"));
+        pw.append("QS_TYPE_NPC = 1\n");
+        pw.append("QS_TYPE_OBJECT = 2\n\n");
         pw.append("QS_RU_NAME_IDX = 1\n");
         pw.append("QUESTS_STARTED_IDX = 2\n");
-        pw.append("QS_RELATED_EVENTS_IDX = 3\n\n");
+        pw.append("QS_RELATED_EVENT_IDX = 3\n\n");
         pw.append("GlobalQuestStarters = {\n");
         pw.append("\t[1] = {\n");
         for (QuestStarter qs : quest_starters) {
@@ -744,7 +742,7 @@ public class DBCreating {
                 pw.append("\t\t[").append(qs.id + "").append("] = {");
                 pw.append("\"").append(qs.ru_name.replaceAll("\"", "\\\\\"")).append("\", ");
                 pw.append(qs.quests_started.toString().replace('[', '{').replace(']', '}')).append(", ");
-                pw.append(qs.events_id.isEmpty() ? "0" : qs.events_id.toString().replace('[', '{').replace(']', '}'));
+                pw.append(qs.events_id.isEmpty() ? "0" : qs.events_id.size() > 1 ? "-1" : qs.events_id.get(0).toString());
                 pw.append("},\n");
             }
         }

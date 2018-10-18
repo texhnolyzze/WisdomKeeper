@@ -56,38 +56,38 @@ public class DBCreating {
     }
     
     public static void main(String[] args) throws SQLException, IOException {
-        try {
-            collect_all_quests();
+       try {
+           collect_all_quests();
 //            collect_quests_require_edits();
-            apply_edits();
-            build_positive_exclusive_groups();
-            collect_quest_conditions();
-            parse_isengard_db();
-            // 3, 4, 5 are id's of same event (Darkmoon Faire)
-            ru_event_name.remove(4);
-            ru_event_name.remove(5);
-            List<Integer> l = Arrays.asList(4, 5);
-            for (QuestStarter qs : quest_starters) {
-                if (qs.events_id.contains(4) || qs.events_id.contains(5)) {
-                    qs.events_id.removeAll(l);
-                    if (!qs.events_id.contains(3))
-                        qs.events_id.add(3);
-                }
-            }
-            for (Quest q : quests.values()) {
-                if (q.events_id.contains(4) || q.events_id.contains(5)) {
-                    q.events_id.removeAll(l);
-                    if (!q.events_id.contains(3))
-                        q.events_id.add(3);
-                }
-            }
-            process_quest_starters();
-            all_to_lua_table();
-        } catch (Exception e) {
-            logger.flush();
-            logger.close();
-            throw e;
-        }
+           apply_edits();
+           build_positive_exclusive_groups();
+           collect_quest_conditions();
+           parse_isengard_db();
+           // 3, 4, 5 are id's of same event (Darkmoon Faire)
+           ru_event_name.remove(4);
+           ru_event_name.remove(5);
+           List<Integer> l = Arrays.asList(4, 5);
+           for (QuestStarter qs : quest_starters) {
+               if (qs.events_id.contains(4) || qs.events_id.contains(5)) {
+                   qs.events_id.removeAll(l);
+                   if (!qs.events_id.contains(3))
+                       qs.events_id.add(3);
+               }
+           }
+           for (Quest q : quests.values()) {
+               if (q.events_id.contains(4) || q.events_id.contains(5)) {
+                   q.events_id.removeAll(l);
+                   if (!q.events_id.contains(3))
+                       q.events_id.add(3);
+               }
+           }
+           process_quest_starters();
+           all_to_lua_table();
+       } catch (Exception e) {
+           logger.flush();
+           logger.close();
+           throw e;
+       }
     }
     
     static void collect_all_quests() throws SQLException, IOException {
@@ -128,7 +128,7 @@ public class DBCreating {
         int[] min_max = get_min_max_lvl(doc);
         q.min_level = min_max[0];
         q.max_level = min_max[1];
-        int[] req_skill = get_required_skill(doc);
+        int[] req_skill = get_required_skill(id, doc);
         q.req_skill_id = req_skill[0];
         q.req_skill_points = req_skill[1];
         q.zone_or_sort = get_zone_or_sort(id, doc);
@@ -337,11 +337,11 @@ public class DBCreating {
         return special_flags;
     }
     
-    static final Pattern skill_pattern = Pattern.compile("Профессия: \\[skill=[0-9]+\\] \\([0-9]+\\)");
+    static final Pattern skill_pattern = Pattern.compile("Профессия:\\s\\[skill=[0-9]+\\](\\s\\([0-9]+\\))?");
     static final Pattern skill_id_pattern = Pattern.compile("skill=[0-9]+");
     static final Pattern skill_req_points_pattern = Pattern.compile("\\([0-9]+\\)");
     
-    static int[] get_required_skill(Document doc) {
+    static int[] get_required_skill(int id, Document doc) throws SQLException {
         String s = doc.getElementById("infobox-contents0").nextElementSibling().html();
         Matcher m = skill_pattern.matcher(s);
         if (!m.find())
@@ -353,9 +353,17 @@ public class DBCreating {
             String[] split = s.substring(m.start(), m.end()).split("=");
             int skill_id = Integer.parseInt(split[1]);
             m = skill_req_points_pattern.matcher(s);
-            m.find();
-            int req_points = Integer.parseInt(s.substring(m.start(), m.end()).replaceAll("\\(|\\)", ""));
-            return new int[] {skill_id, req_points};
+            if (m.find()) {
+                int req_points = Integer.parseInt(s.substring(m.start(), m.end()).replaceAll("\\(|\\)", ""));
+                return new int[] {skill_id, req_points};
+            } else {
+                Statement st = jdbc_connection.createStatement(); 
+                ResultSet rs = st.executeQuery("SELECT RequiredSkillPoints FROM quest_template_addon WHERE ID = " + id + ";");
+                if (rs.next()) {
+                    return new int[] {skill_id, rs.getInt(1)};
+                } else
+                    return new int[] {skill_id, 1};
+            }
         }
     }
     
